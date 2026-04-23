@@ -12,11 +12,11 @@ load_dotenv()
 from google_places import fetch_all_data
 
 TEST_PLACE_IDS = [
-    ("ChIJ_REPLACE_1", "restaurant"),
-    ("ChIJ_REPLACE_2", "restaurant"),
-    ("ChIJ_REPLACE_3", "retail"),
-    ("ChIJ_REPLACE_4", "grocery"),
-    ("ChIJ_REPLACE_5", "restaurant"),
+    ("ChIJrTLr-GyuEmsRBfy61i59si0", "cafe"),        # Starbucks (baseline)
+    ("ChIJVXealLUWrjsRja_At0z9AGY", "restaurant"),  # Toit Brewpub, Indiranagar
+    ("ChIJb1uQz2oUrjsRZ7pQ7FqR7Y4", "restaurant"),  # Truffles, Koramangala
+    ("ChIJR8l4xqYUrjsR9dQXnVt9cNc", "cafe"),        # Brahmin's Coffee Bar, Basavanagudi
+    ("ChIJh8P6z5sUrjsR0s7iQn7y1nA", "restaurant"),  # Vidyarthi Bhavan, Gandhi Bazaar
 ]
 
 def run_tests():
@@ -25,7 +25,7 @@ def run_tests():
     errors = []
 
     for place_id, category in TEST_PLACE_IDS:
-        print(f"\n{'─' * 60}")
+        print(f"\n{'-' * 60}")
         print(f"Testing: {place_id}  [{category}]")
 
         try:
@@ -63,7 +63,7 @@ def run_tests():
             print(f"  ERROR: {msg}")
             errors.append(msg)
 
-    print(f"\n{'=' * 60}")
+    print(f"\n{'=' * 60}", flush=True)
     print(f"Successfully fetched: {success_count}/{len(TEST_PLACE_IDS)} businesses")
     print(f"Total competitors found: {total_competitors}")
     if errors:
@@ -72,7 +72,7 @@ def run_tests():
             print(f"  • {err}")
     else:
         print("No errors.")
-    print("=" * 60)
+    print("=" * 60, flush=True)
 
 
 if __name__ == "__main__":

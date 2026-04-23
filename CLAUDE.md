@@ -26,14 +26,16 @@ MVP — building and testing locally. No deployment yet.
 
 ## Key files
 
-| File | Purpose |
-|---|---|
-| `main.py` | All FastAPI endpoints |
-| `google_places.py` | Google Places fetch + parse |
-| `health_score.py` | Score engine — review + competitor + POS sub-scores |
-| `insights.py` | Claude API call + JSON parse |
-| `pos_pipeline.py` | POS ingestion + signal computation |
-| `generate_synthetic_pos.py` | Faker + Pandas CSV generator |
+| File | Status | Purpose |
+|---|---|---|
+| `main.py` | exists — skeleton | FastAPI app, root health-check only (endpoints not yet built) |
+| `google_places.py` | exists — complete | Google Places fetch + parse (4 functions) |
+| `health_score.py` | not yet built | Score engine — review + competitor + POS sub-scores |
+| `insights.py` | not yet built | Claude API call + JSON parse |
+| `pos_pipeline.py` | not yet built | POS ingestion + signal computation |
+| `generate_synthetic_pos.py` | not yet built | Faker + Pandas CSV generator |
+| `test_connections.py` | exists | Verifies Supabase connectivity |
+| `test_google_places.py` | exists | End-to-end test for google_places.py (5 Bangalore place IDs) |
 
 ## Database tables
 
@@ -97,6 +99,7 @@ uvicorn main:app --reload
 
 ## Quality gates before calling MVP done
 
+- [ ] `test_google_places.py` passes for ≥ 4/5 businesses (blocked: enable legacy Places API in GCP console)
 - [ ] 10 Claude outputs rated ≥ 3.5/5 average on specificity
 - [ ] Pipeline runs 10 businesses without unhandled exceptions
 - [ ] Healthy synthetic profile scores 75+
@@ -113,4 +116,4 @@ uvicorn main:app --reload
 
 ---
 
-*Last updated: April 2026*
+*Last updated: 23 April 2026*
