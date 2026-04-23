@@ -14,13 +14,13 @@ MVP — building and testing locally. No deployment yet.
 
 ## Architecture in one paragraph
 
-`main.py` is the FastAPI app with 4 endpoints. `/onboard` registers a business. `/upload-pos` ingests a CSV into `pos_records`. `/generate-report` runs the full pipeline: `google_places.py` fetches data → `health_score.py` computes 3 sub-scores → `pos_pipeline.py` computes POS signals → `insights.py` calls Claude API → result saved to `health_scores` table in Supabase. `/history` returns past scores. All data lives in Supabase PostgreSQL. No caching layer. No auth.
+`main.py` is the FastAPI app with 4 endpoints (planned — currently a stub with only `GET /`). `/onboard` registers a business. `/upload-pos` ingests a CSV into `pos_records`. `/generate-report` runs the full pipeline: `google_places.py` fetches data → `health_score.py` computes 3 sub-scores → `pos_pipeline.py` computes POS signals → `insights.py` calls Claude API → result saved to `health_scores` table in Supabase. `/history` returns past scores. All data lives in Supabase PostgreSQL. No caching layer. No auth.
 
 ## Tech stack
 
 - Python 3.11 + FastAPI + Uvicorn
 - Supabase (PostgreSQL) via supabase-py
-- Google Maps Python client (Places API)
+- `requests` — direct HTTP calls to Places API (New) v1 (`places.googleapis.com/v1`)
 - Anthropic SDK — model: `claude-sonnet-4-20250514`
 - Pandas + Faker for synthetic POS data
 
@@ -29,13 +29,13 @@ MVP — building and testing locally. No deployment yet.
 | File | Status | Purpose |
 |---|---|---|
 | `main.py` | exists — skeleton | FastAPI app, root health-check only (endpoints not yet built) |
-| `google_places.py` | exists — complete | Google Places fetch + parse (4 functions) |
+| `google_places.py` | exists — complete | Places API (New) v1 fetch + parse — business details, reviews, competitors |
 | `health_score.py` | not yet built | Score engine — review + competitor + POS sub-scores |
 | `insights.py` | not yet built | Claude API call + JSON parse |
 | `pos_pipeline.py` | not yet built | POS ingestion + signal computation |
 | `generate_synthetic_pos.py` | exists — complete | Faker + Pandas CSV generator — 5 profiles, 90-day data, reproducible (SEED=42) |
 | `test_connections.py` | exists | Verifies Supabase connectivity |
-| `test_google_places.py` | exists | End-to-end test for google_places.py (5 Bangalore place IDs) |
+| `test_google_places.py` | exists — complete | End-to-end test — resolves Pune businesses by name via Text Search, no hardcoded IDs |
 | `data/business_biz_00{1-5}_pos.csv` | exists — generated | 90-day synthetic POS CSVs (360–450 rows each); re-generate with `python generate_synthetic_pos.py` |
 
 ## Database tables
@@ -100,8 +100,8 @@ uvicorn main:app --reload
 
 ## Quality gates before calling MVP done
 
-- [ ] `test_google_places.py` passes for ≥ 4/5 businesses (blocked: enable legacy Places API in GCP console)
-- [ ] 10 Claude outputs rated ≥ 3.5/5 average on specificity
+- [x] `test_google_places.py` passes 5/5 Pune businesses (Places API New v1 — done)
+- [ ] 10 Claude outputs rated >= 3.5/5 average on specificity
 - [ ] Pipeline runs 10 businesses without unhandled exceptions
 - [ ] Healthy synthetic profile scores 75+
 - [ ] Struggling synthetic profile scores below 40
@@ -117,4 +117,4 @@ uvicorn main:app --reload
 
 ---
 
-*Last updated: 23 April 2026 (Session 2 — generate_synthetic_pos.py complete)*
+*Last updated: 23 April 2026 (Session 2 — google_places.py migrated to Places API New v1)*
