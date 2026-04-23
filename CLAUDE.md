@@ -30,12 +30,14 @@ MVP — building and testing locally. No deployment yet.
 |---|---|---|
 | `main.py` | exists — skeleton | FastAPI app, root health-check only (endpoints not yet built) |
 | `google_places.py` | exists — complete | Google Places fetch + parse (4 functions) |
-| `health_score.py` | not yet built | Score engine — review + competitor + POS sub-scores |
+| `health_score.py` | exists — complete | Score engine — review + competitor + POS sub-scores |
 | `insights.py` | not yet built | Claude API call + JSON parse |
-| `pos_pipeline.py` | not yet built | POS ingestion + signal computation |
+| `pos_pipeline.py` | exists — complete | POS ingestion + signal computation |
 | `generate_synthetic_pos.py` | exists — complete | Faker + Pandas CSV generator — 5 profiles, 90-day data, reproducible (SEED=42) |
 | `test_connections.py` | exists | Verifies Supabase connectivity |
 | `test_google_places.py` | exists | End-to-end test for google_places.py (5 Bangalore place IDs) |
+| `test_pos_pipeline.py` | exists | End-to-end test for pos_pipeline.py (14 signal assertions, requires Supabase) |
+| `test_health_score.py` | exists | Unit + integration tests for health_score.py (23 assertions, no external deps) |
 | `data/business_biz_00{1-5}_pos.csv` | exists — generated | 90-day synthetic POS CSVs (360–450 rows each); re-generate with `python generate_synthetic_pos.py` |
 
 ## Database tables
@@ -51,6 +53,7 @@ final_score = int(review_score * 0.40 + competitor_score * 0.25 + pos_score * 0.
 ```
 
 - `review_score`: rating quality (0–55) + volume log scale (0–25) + recent trend (0–20)
+  - Quality formula: `((rating - 1) / 4.0) * 55` — normalised within the actual Google [1–5] scale so a 1-star rating scores near 0 quality points
 - `competitor_score`: clamp(60 + (my_rating - mean_competitor_rating) * 30, 0, 100). No competitors = 65.
 - `pos_score`: revenue trend (0–50) + slow inventory (0–30) + AOV health (0–20). No data = 50.
 
@@ -103,8 +106,8 @@ uvicorn main:app --reload
 - [ ] `test_google_places.py` passes for ≥ 4/5 businesses (blocked: enable legacy Places API in GCP console)
 - [ ] 10 Claude outputs rated ≥ 3.5/5 average on specificity
 - [ ] Pipeline runs 10 businesses without unhandled exceptions
-- [ ] Healthy synthetic profile scores 75+
-- [ ] Struggling synthetic profile scores below 40
+- [x] Healthy synthetic profile scores 75+ (scored 89 in test_health_score.py — Session 3)
+- [x] Struggling synthetic profile scores below 40 (scored 38 in test_health_score.py — Session 3)
 - [ ] Slow category in synthetic data correctly flagged by name
 
 ## Update this file when
@@ -117,4 +120,4 @@ uvicorn main:app --reload
 
 ---
 
-*Last updated: 23 April 2026 (Session 2 — generate_synthetic_pos.py complete)*
+*Last updated: 23 April 2026 (Session 3 — health_score.py complete, 23/23 assertions pass)*
