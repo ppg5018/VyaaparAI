@@ -33,9 +33,10 @@ MVP — building and testing locally. No deployment yet.
 | `health_score.py` | not yet built | Score engine — review + competitor + POS sub-scores |
 | `insights.py` | not yet built | Claude API call + JSON parse |
 | `pos_pipeline.py` | not yet built | POS ingestion + signal computation |
-| `generate_synthetic_pos.py` | not yet built | Faker + Pandas CSV generator |
+| `generate_synthetic_pos.py` | exists — complete | Faker + Pandas CSV generator — 5 profiles, 90-day data, reproducible (SEED=42) |
 | `test_connections.py` | exists | Verifies Supabase connectivity |
 | `test_google_places.py` | exists | End-to-end test for google_places.py (5 Bangalore place IDs) |
+| `data/business_biz_00{1-5}_pos.csv` | exists — generated | 90-day synthetic POS CSVs (360–450 rows each); re-generate with `python generate_synthetic_pos.py` |
 
 ## Database tables
 
@@ -116,4 +117,4 @@ uvicorn main:app --reload
 
 ---
 
-*Last updated: 23 April 2026*
+*Last updated: 23 April 2026 (Session 2 — generate_synthetic_pos.py complete)*
