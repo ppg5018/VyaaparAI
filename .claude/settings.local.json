@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python *)",
+      "Bash(python3 -m pip install -r requirements.txt)",
+      "Bash(cmd.exe *)",
+      "Bash(/c/Windows/System32/cmd.exe *)",
+      "Bash(powershell.exe *)",
+      "Bash(pip install *)",
+      "Bash(pip show *)",
+      "Bash(pip index *)",
+      "Bash(pip download *)",
+      "Bash(venv/Scripts/pip install *)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "Bash(venv/Scripts/python.exe -c \"import google_places; print\\('Import OK'\\)\")",
+      "Bash(venv/Scripts/python.exe -c ' *)"
+    ]
+  }
+}
