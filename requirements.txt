@@ -25,6 +25,7 @@ idna==3.11
 jiter==0.14.0
 markdown-it-py==4.0.0
 mdurl==0.1.2
+mmh3==5.2.1
 multidict==6.7.1
 numpy==2.4.4
 packaging==26.1
@@ -35,8 +36,10 @@ pycparser==3.0
 pydantic==2.13.1
 pydantic_core==2.46.1
 Pygments==2.20.0
+pyiceberg==0.11.1
 PyJWT==2.12.1
 pyparsing==3.3.2
+pyroaring==1.0.4
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 realtime==2.28.3
