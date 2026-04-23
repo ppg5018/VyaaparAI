@@ -1,32 +1,67 @@
 """
-Run this after filling in real Pune Place IDs to verify the pipeline.
-Get Place IDs: Google Maps → search a business → share link → copy ChIJ... ID.
+Resolves Pune businesses by name via Text Search, then runs the full pipeline.
+No hardcoded Place IDs — avoids stale ID issues.
 
 Usage:
     python test_google_places.py
 """
 
+import os
+import requests
 from dotenv import load_dotenv
 load_dotenv()
 
 from google_places import fetch_all_data
 
-TEST_PLACE_IDS = [
-    ("ChIJrTLr-GyuEmsRBfy61i59si0", "cafe"),        # Starbucks (baseline)
-    ("ChIJVXealLUWrjsRja_At0z9AGY", "restaurant"),  # Toit Brewpub, Indiranagar
-    ("ChIJb1uQz2oUrjsRZ7pQ7FqR7Y4", "restaurant"),  # Truffles, Koramangala
-    ("ChIJR8l4xqYUrjsR9dQXnVt9cNc", "cafe"),        # Brahmin's Coffee Bar, Basavanagudi
-    ("ChIJh8P6z5sUrjsR0s7iQn7y1nA", "restaurant"),  # Vidyarthi Bhavan, Gandhi Bazaar
+_BASE_URL = "https://places.googleapis.com/v1"
+
+TEST_BUSINESSES = [
+    ("Vaishali Restaurant Pune FC Road",     "restaurant"),  # iconic Pune restaurant
+    ("Vohuman Cafe Pune",                    "cafe"),        # iconic Irani cafe
+    ("Chitale Bandhu Mithaiwale Pune",       "retail"),      # iconic sweet & snack shop
+    ("Dorabjee's Grocery Store Pune Camp",   "grocery"),     # heritage grocery store
+    ("Roopali Hotel Deccan Pune",            "restaurant"),  # legendary local eatery
 ]
+
+
+def resolve_place_id(query: str) -> str | None:
+    """Use Text Search to get a fresh Place ID for a business name."""
+    resp = requests.post(
+        f"{_BASE_URL}/places:searchText",
+        headers={
+            "X-Goog-Api-Key": os.getenv("GOOGLE_PLACES_API_KEY"),
+            "X-Goog-FieldMask": "places.id,places.displayName",
+            "Content-Type": "application/json",
+        },
+        json={"textQuery": query},
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        print(f"  Text Search failed ({resp.status_code}): {resp.text[:200]}")
+        return None
+    places = resp.json().get("places", [])
+    if not places:
+        return None
+    return places[0]["id"]
+
 
 def run_tests():
     success_count = 0
     total_competitors = 0
     errors = []
 
-    for place_id, category in TEST_PLACE_IDS:
-        print(f"\n{'-' * 60}")
-        print(f"Testing: {place_id}  [{category}]")
+    for query, category in TEST_BUSINESSES:
+        print(f"\n{'─' * 60}")
+        print(f"Resolving: {query}  [{category}]")
+
+        place_id = resolve_place_id(query)
+        if not place_id:
+            msg = f"No Place ID found for '{query}'"
+            print(f"  ERROR: {msg}")
+            errors.append(msg)
+            continue
+
+        print(f"  Place ID: {place_id}")
 
         try:
             data = fetch_all_data(place_id, category)
@@ -37,13 +72,15 @@ def run_tests():
             print(f"  Address:     {data['address']}")
 
             if data["reviews"]:
-                snippet = data["reviews"][0]["text"][:100]
-                print(f"  Top review:  \"{snippet}\"")
+                print(f"  Reviews ({len(data['reviews'])}):")
+                for i, rev in enumerate(data["reviews"], 1):
+                    snippet = rev["text"][:120] or "(no text)"
+                    print(f"    {i}. {rev['rating']}★ [{rev['relative_time']}] \"{snippet}\"")
             else:
-                print(f"  Top review:  (none returned)")
+                print(f"  Reviews: (none returned)")
 
             n_comp = len(data["competitors"])
-            print(f"  Competitors: {n_comp} found")
+            print(f"  Competitors ({n_comp} found, showing top 3):")
             for comp in data["competitors"][:3]:
                 print(f"    • {comp['name']} — {comp['rating']}★ ({comp['review_count']} reviews)")
 
@@ -64,7 +101,7 @@ def run_tests():
             errors.append(msg)
 
     print(f"\n{'=' * 60}", flush=True)
-    print(f"Successfully fetched: {success_count}/{len(TEST_PLACE_IDS)} businesses")
+    print(f"Successfully fetched: {success_count}/{len(TEST_BUSINESSES)} businesses")
     print(f"Total competitors found: {total_competitors}")
     if errors:
         print("Errors:")
