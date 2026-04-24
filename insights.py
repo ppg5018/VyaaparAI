@@ -1,0 +1,179 @@
+import os
+import json
+import logging
+
+import anthropic
+from dotenv import load_dotenv
+
+load_dotenv()
+os.makedirs("logs", exist_ok=True)
+
+_fmt = logging.Formatter("%(asctime)s — %(levelname)s — %(message)s")
+logger = logging.getLogger("vyaparai.insights")
+logger.setLevel(logging.DEBUG)
+if not logger.handlers:
+    _fh = logging.FileHandler("logs/module1.log", encoding="utf-8")
+    _fh.setLevel(logging.DEBUG)
+    _fh.setFormatter(_fmt)
+    _ch = logging.StreamHandler()
+    _ch.setLevel(logging.WARNING)
+    _ch.setFormatter(_fmt)
+    logger.addHandler(_fh)
+    logger.addHandler(_ch)
+
+MODEL = "claude-sonnet-4-20250514"
+MAX_TOKENS = 800
+
+
+def build_prompt(business_data: dict, scores: dict, pos_signals: dict) -> str:
+    name = business_data.get("name", "Unknown Business")
+    rating = business_data.get("rating", 0.0)
+    total_reviews = business_data.get("total_reviews", 0)
+    final_score = scores.get("final_score", 0)
+    band = scores.get("band", "unknown")
+
+    reviews = business_data.get("reviews", [])[:3]
+    if reviews:
+        snippets = [
+            f"- {r['rating']}★ ({r.get('relative_time', 'recently')}): {r['text']}"
+            for r in reviews
+        ]
+        review_snippets = "\n".join(snippets)
+    else:
+        review_snippets = "No reviews available"
+
+    competitors = business_data.get("competitors", [])[:3]
+    if competitors:
+        comp_lines = [
+            f"- {c['name']}: {c['rating']}★ ({c['review_count']} reviews)"
+            for c in competitors
+        ]
+        competitor_lines = "\n".join(comp_lines)
+    else:
+        competitor_lines = "No nearby competitors found"
+
+    revenue_trend_pct = pos_signals.get("revenue_trend_pct")
+    slow_categories = pos_signals.get("slow_categories", [])
+    top_product = pos_signals.get("top_product")
+    aov_direction = pos_signals.get("aov_direction")
+
+    revenue_trend_str = (
+        "No POS data available" if revenue_trend_pct is None
+        else f"{revenue_trend_pct:+.1f}% vs prior month"
+    )
+    slow_categories_str = (
+        "None — all categories healthy" if not slow_categories
+        else ", ".join(slow_categories)
+    )
+    top_product_str = top_product if top_product is not None else "No POS data available"
+    aov_str = aov_direction if aov_direction is not None else "No POS data available"
+
+    return f"""You are a business advisor for Indian MSME owners. Be specific, not generic.
+Always name specific products and competitors. Never say "some products" or
+"nearby competitors". Actions must cost under ₹2,000 and take under 3 hours.
+
+Business: {name}
+Rating: {rating}/5 ({total_reviews} reviews)
+Health score: {final_score}/100 (band: {band})
+
+Last 3 reviews:
+{review_snippets}
+
+Top 3 nearby competitors (within 800m):
+{competitor_lines}
+
+Sales signals (last 30 days):
+Revenue trend: {revenue_trend_str}
+Slow-moving categories: {slow_categories_str}
+Top product by revenue: {top_product_str}
+Average order value: {aov_str}
+
+Generate 3 insights and 1 action.
+Each insight must:
+- Name a specific product, category, or competitor
+- Reference actual numbers from the data above
+- Be different from the other insights
+
+The action must:
+- Cost under ₹2,000
+- Take under 3 hours of owner's time
+- Be doable this week
+- Be the single highest-impact thing to do
+
+Return ONLY valid JSON, no markdown, no preamble:
+{{"insights": ["...", "...", "..."], "action": "..."}}"""
+
+
+def strip_markdown(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+    if text.endswith("```"):
+        text = text.rsplit("```", 1)[0]
+    return text.strip()
+
+
+def _call_claude(prompt: str) -> str:
+    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    msg = client.messages.create(
+        model=MODEL,
+        max_tokens=MAX_TOKENS,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return msg.content[0].text
+
+
+def _parse_and_validate(response_text: str) -> dict:
+    cleaned = strip_markdown(response_text)
+    result = json.loads(cleaned)
+    assert "insights" in result and isinstance(result["insights"], list)
+    assert len(result["insights"]) == 3
+    assert "action" in result and isinstance(result["action"], str)
+    assert all(isinstance(i, str) for i in result["insights"])
+    return result
+
+
+def generate_insights(business_data: dict, scores: dict, pos_signals: dict) -> dict:
+    """Call Claude, parse JSON insights, retry once on failure.
+
+    Returns: {"insights": [str, str, str], "action": str}
+    Raises:
+        anthropic.RateLimitError: caller must handle backoff
+        anthropic.AuthenticationError: caller must fix API key
+        RuntimeError: if both attempts fail to produce valid JSON
+    """
+    prompt = build_prompt(business_data, scores, pos_signals)
+    response_text = None
+
+    try:
+        response_text = _call_claude(prompt)
+        logger.debug("Claude response (attempt 1): %s", response_text)
+        return _parse_and_validate(response_text)
+    except (anthropic.RateLimitError, anthropic.AuthenticationError):
+        raise
+    except anthropic.APITimeoutError as exc:
+        logger.warning("API timeout on attempt 1, retrying: %s", exc)
+    except (json.JSONDecodeError, AssertionError, ValueError, KeyError, IndexError) as exc:
+        logger.warning(
+            "Parse/validation failed on attempt 1: %s | raw: %.300s", exc, response_text
+        )
+
+    stricter_prompt = (
+        prompt
+        + "\n\nCRITICAL: Output must be ONLY the JSON object. "
+        "No text before or after. No markdown. Start with { and end with }."
+    )
+    response_text = None
+
+    try:
+        response_text = _call_claude(stricter_prompt)
+        logger.debug("Claude response (attempt 2): %s", response_text)
+        return _parse_and_validate(response_text)
+    except (anthropic.RateLimitError, anthropic.AuthenticationError):
+        raise
+    except Exception as exc:
+        logger.error(
+            "Claude insights failed after retry. Error: %s | raw: %.300s",
+            exc, response_text,
+        )
+        raise RuntimeError("Claude insights generation failed after retry") from exc
