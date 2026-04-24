@@ -195,6 +195,52 @@ def get_nearby_competitors(
     return competitors[:MAX_COMPETITORS]
 
 
+def autocomplete_places(query: str) -> list[dict]:
+    """Return up to 5 autocomplete suggestions for a business name query.
+
+    Each result has: place_id, name, address.
+    Returns empty list on any failure.
+    """
+    try:
+        results = _get_client().places_autocomplete(
+            input_text=query,
+            types=["establishment"],
+        )
+        suggestions = []
+        for r in results[:5]:
+            fmt = r.get("structured_formatting", {})
+            suggestions.append({
+                "place_id": r.get("place_id", ""),
+                "name":     fmt.get("main_text") or r.get("description", ""),
+                "address":  fmt.get("secondary_text") or "",
+            })
+        return suggestions
+    except Exception as exc:
+        logger.warning("autocomplete_places failed for '%s': %s", query, exc)
+        return []
+
+
+def find_place_by_name(name: str) -> str | None:
+    """Search Google Places by business name and return the best-match place_id.
+
+    Returns None on any failure so callers can fall back gracefully.
+    """
+    try:
+        response = _get_client().find_place(
+            input=name,
+            input_type="textquery",
+            fields=["place_id", "name"],
+        )
+        candidates = response.get("candidates", [])
+        if candidates:
+            place_id = candidates[0].get("place_id")
+            logger.info("find_place_by_name: '%s' → %s", name, place_id)
+            return place_id
+    except Exception as exc:
+        logger.warning("find_place_by_name failed for '%s': %s", name, exc)
+    return None
+
+
 def fetch_all_data(place_id: str, category: str) -> dict:
     """Fetch business details and nearby competitors from Google Places.
 

@@ -7,25 +7,24 @@ class OnboardRequest(BaseModel):
     """Request body for POST /onboard."""
 
     name: str = Field(..., min_length=1, max_length=200)
-    place_id: str = Field(..., min_length=10)
+    place_id: Optional[str] = Field(None, min_length=10)
     category: str
     owner_name: str = Field(..., min_length=1, max_length=100)
 
     @field_validator("place_id")
     @classmethod
-    def validate_place_id(cls, v: str) -> str:
-        """Ensure place_id starts with the Google Places ChIJ prefix."""
-        if not v.startswith("ChIJ"):
+    def validate_place_id(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not v.startswith("ChIJ"):
             raise ValueError("place_id must start with ChIJ")
         return v
 
     @field_validator("category")
     @classmethod
     def validate_category(cls, v: str) -> str:
-        """Ensure category is one of the supported business types."""
-        if v not in VALID_CATEGORIES:
+        normalized = v.lower()
+        if normalized not in VALID_CATEGORIES:
             raise ValueError(f"category must be one of {sorted(VALID_CATEGORIES)}")
-        return v
+        return normalized
 
 
 class OnboardResponse(BaseModel):
@@ -53,6 +52,22 @@ class SubScores(BaseModel):
     pos_score: int
 
 
+class Review(BaseModel):
+    """A single parsed Google review."""
+
+    rating: int
+    text: str
+    relative_time: str
+
+
+class Competitor(BaseModel):
+    """A nearby competitor from Google Places."""
+
+    name: str
+    rating: float
+    review_count: int
+
+
 class ReportResponse(BaseModel):
     """Response body for POST /generate-report/{business_id}."""
 
@@ -63,6 +78,8 @@ class ReportResponse(BaseModel):
     sub_scores: SubScores
     google_rating: float
     total_reviews: int
+    reviews: list[Review]
+    competitors: list[Competitor]
     insights: list[str]
     action: str
     generated_at: str
