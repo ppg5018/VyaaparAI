@@ -6,10 +6,10 @@ Read this at the start of every coding session to know exactly where you left of
 
 ## Current status
 
-**Phase:** MVP — Building
-**Sprint:** Phase 4 — Synthetic POS data (complete); Phase 2 DB schema still pending
-**Last worked on:** 23 April 2026
-**Blocking issue:** Legacy Places API not enabled in Google Cloud Console — must enable before `test_google_places.py` passes (does not block POS or health score work)
+**Phase:** MVP — Built; blocked on GCP API enablement before e2e test can pass
+**Sprint:** Phase 7 — FastAPI endpoints complete; e2e test written; awaiting GCP unblock
+**Last worked on:** 24 April 2026
+**Blocking issue:** "Places API" (legacy) not enabled in Google Cloud Console. All Google Places API calls (place details, places nearby, find place) return REQUEST_DENIED. Fix: GCP console → APIs & Services → Library → enable "Places API" (NOT "Places API (New)").
 
 ---
 
@@ -19,31 +19,32 @@ Read this at the start of every coding session to know exactly where you left of
 - [ ] Phase 2 — Database schema (SQL not yet applied in Supabase)
 - [x] Phase 3 — Google Places pipeline (`google_places.py` complete, `test_google_places.py` written; blocked on GCP config)
 - [x] Phase 4 — Synthetic POS data (`generate_synthetic_pos.py` complete; 5 CSVs in `data/`, all validation ✓)
-- [ ] Phase 5 — Health score engine (`health_score.py`)
-- [ ] Phase 6 — Claude insights engine (`insights.py`)
-- [ ] Phase 7 — FastAPI endpoints + end-to-end test
+- [x] Phase 5 — Health score engine (`health_score.py` complete, 23/23 assertions pass)
+- [x] Phase 6 — Claude insights engine (`insights.py` complete with retry logic and quality gate)
+- [x] Phase 7 — FastAPI endpoints (`main.py` with 4 endpoints, error handling, Pydantic v2 validation) + `test_e2e.py` written
 
 ---
 
 ## What to do next (pick up here)
 
-**Right now (can be done in either order):**
+**One blocker stands between now and MVP done:**
 
-Option A — Unblock the Google Places test (5 minutes):
+Enable "Places API" (legacy) in GCP (5 minutes):
 1. Go to console.cloud.google.com → APIs & Services → Library
 2. Search "Places API" → enable the one simply called **Places API** (NOT "Places API (New)")
 3. Wait 30 seconds, then run: `venv\Scripts\python.exe -X utf8 test_google_places.py`
 4. Verify ≥ 4/5 businesses fetch successfully
 
-Option B — Phase 2 DB schema (can do without fixing GCP):
-- Paste the SQL schema from `docs/architecture.md` into Supabase SQL Editor and run it
-- Confirm all 3 tables exist (`businesses`, `health_scores`, `pos_records`)
+**Then fill in real Pune Place IDs in `test_e2e.py`:**
+- Open Google Maps → search each business → Share → copy ChIJ... Place ID
+- Replace the 5 placeholder IDs in `TEST_BUSINESSES` in `test_e2e.py`
 
-**After both A and B:**
-- Phase 5 — build `health_score.py` (pure Python, no external calls)
-  - Consumes `fetch_all_data()` output from `google_places.py`
-  - Reads `data/business_biz_00X_pos.csv` for POS signals (via `pos_pipeline.py`)
-  - Formula: `final_score = int(review_score * 0.40 + competitor_score * 0.25 + pos_score * 0.35)`
+**Then run the e2e test:**
+```bash
+uvicorn main:app --reload   # terminal 1
+python test_e2e.py          # terminal 2
+```
+When 5/5 pass → MVP complete → tag v0.1.0-mvp.
 
 ---
 
