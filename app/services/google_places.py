@@ -1,31 +1,17 @@
-import os
 import time
 import logging
-import math
 
 import googlemaps
 import googlemaps.exceptions
-from dotenv import load_dotenv
 
-load_dotenv()
-os.makedirs("logs", exist_ok=True)
+from app.config import (
+    GOOGLE_PLACES_API_KEY,
+    COMPETITOR_RADIUS_METERS,
+    MAX_COMPETITORS,
+    MAX_REVIEW_TEXT_LENGTH,
+)
 
-_fmt = logging.Formatter("%(asctime)s — %(levelname)s — %(message)s")
-
-logger = logging.getLogger("vyaparai.google_places")
-logger.setLevel(logging.INFO)
-
-if not logger.handlers:
-    _fh = logging.FileHandler("logs/module1.log")
-    _fh.setLevel(logging.INFO)
-    _fh.setFormatter(_fmt)
-
-    _ch = logging.StreamHandler()
-    _ch.setLevel(logging.WARNING)
-    _ch.setFormatter(_fmt)
-
-    logger.addHandler(_fh)
-    logger.addHandler(_ch)
+logger = logging.getLogger(__name__)
 
 _PLACE_FIELDS = [
     "name",
@@ -50,28 +36,25 @@ _CATEGORY_TYPE_MAP = {
 }
 
 # Lazy-initialised so importing this module never fails if the key is absent.
-_gmaps_client: googlemaps.Client = None
+_gmaps_client: googlemaps.Client | None = None
 
 
 def _get_client() -> googlemaps.Client:
+    """Return the shared googlemaps client, initialising it on first call."""
     global _gmaps_client
     if _gmaps_client is None:
-        api_key = os.getenv("GOOGLE_PLACES_API_KEY")
-        if not api_key:
+        if not GOOGLE_PLACES_API_KEY:
             raise RuntimeError(
                 "GOOGLE_PLACES_API_KEY is not set. Add it to your .env file."
             )
-        # retry_over_query_limit=False so OVER_QUERY_LIMIT raises ApiError
-        # immediately instead of being silently retried for 60 s and then
-        # surfacing as a generic Timeout.
+        # retry_over_query_limit=False: OVER_QUERY_LIMIT raises ApiError
+        # immediately instead of being silently retried for 60 s.
         _gmaps_client = googlemaps.Client(
-            key=api_key,
+            key=GOOGLE_PLACES_API_KEY,
             retry_over_query_limit=False,
         )
     return _gmaps_client
 
-
-# ── Public functions ───────────────────────────────────────────────────────────
 
 def get_business_details(place_id: str) -> dict:
     """Fetch name, rating, reviews, and GPS from Google Places Details API.
@@ -80,7 +63,7 @@ def get_business_details(place_id: str) -> dict:
         ValueError: place_id is invalid or not found.
         RuntimeError: quota exceeded, or timeout after one retry.
     """
-    def _call():
+    def _call() -> dict:
         return _get_client().place(
             place_id,
             fields=_PLACE_FIELDS,
@@ -91,34 +74,23 @@ def get_business_details(place_id: str) -> dict:
         try:
             response = _call()
         except googlemaps.exceptions.Timeout:
-            logger.warning(
-                f"Google API timeout for place_id={place_id}, retrying in 2 s..."
-            )
+            logger.warning("Google API timeout for place_id=%s, retrying in 2s", place_id)
             time.sleep(2)
             response = _call()
 
     except googlemaps.exceptions.Timeout:
-        logger.error(
-            f"get_business_details failed for place_id={place_id}: "
-            f"timeout after retry"
-        )
+        logger.error("get_business_details timeout after retry for place_id=%s", place_id)
         raise RuntimeError("Google API timeout after retry")
 
-    except googlemaps.exceptions.ApiError as e:
-        if e.status == "OVER_QUERY_LIMIT":
-            logger.warning(
-                f"Google API quota exceeded for place_id={place_id}"
-            )
+    except googlemaps.exceptions.ApiError as exc:
+        if exc.status == "OVER_QUERY_LIMIT":
+            logger.warning("Google API quota exceeded for place_id=%s", place_id)
             raise RuntimeError("Google API quota exceeded")
-        logger.error(
-            f"get_business_details failed for place_id={place_id}: {e}"
-        )
+        logger.error("get_business_details ApiError for place_id=%s: %s", place_id, exc)
         raise ValueError(f"Invalid place_id: {place_id}")
 
-    except Exception as e:
-        logger.error(
-            f"get_business_details failed for place_id={place_id}: {e}"
-        )
+    except Exception as exc:
+        logger.error("get_business_details failed for place_id=%s: %s", place_id, exc)
         raise
 
     result = response.get("result", {})
@@ -128,8 +100,8 @@ def get_business_details(place_id: str) -> dict:
     business_status = result.get("business_status", "UNKNOWN")
     if business_status == "CLOSED_PERMANENTLY":
         logger.warning(
-            f"Business '{result.get('name', place_id)}' "
-            f"(place_id={place_id}) is CLOSED_PERMANENTLY"
+            "Business '%s' (place_id=%s) is CLOSED_PERMANENTLY",
+            result.get("name", place_id), place_id,
         )
 
     geo = result.get("geometry", {}).get("location", {})
@@ -146,7 +118,7 @@ def get_business_details(place_id: str) -> dict:
 
 
 def parse_reviews(raw_reviews: list) -> list:
-    """Normalise raw review objects into clean dicts.
+    """Normalise raw Google review objects into clean dicts.
 
     Always returns a list. Never raises.
     """
@@ -156,8 +128,8 @@ def parse_reviews(raw_reviews: list) -> list:
     parsed = []
     for rev in raw_reviews:
         text = rev.get("text", "") or ""
-        if len(text) > 200:
-            text = text[:200] + "..."
+        if len(text) > MAX_REVIEW_TEXT_LENGTH:
+            text = text[:MAX_REVIEW_TEXT_LENGTH] + "..."
 
         parsed.append({
             "rating": int(rev.get("rating", 0)),
@@ -174,17 +146,17 @@ def get_nearby_competitors(
     lat: float,
     lng: float,
     category: str,
-    radius: int = 800,
-    exclude_place_id: str = None,
+    radius: int = COMPETITOR_RADIUS_METERS,
+    exclude_place_id: str | None = None,
 ) -> list:
-    """Return up to 10 nearby competitors sorted by rating descending.
+    """Return up to MAX_COMPETITORS nearby competitors sorted by rating descending.
 
     Never raises — returns an empty list on any failure so one bad
     nearby-search never kills the pipeline.
     """
     place_type = _CATEGORY_TYPE_MAP.get(category, _CATEGORY_TYPE_MAP["default"])
 
-    def _call():
+    def _call() -> dict:
         return _get_client().places_nearby(
             location=(lat, lng),
             radius=radius,
@@ -195,22 +167,16 @@ def get_nearby_competitors(
         try:
             response = _call()
         except googlemaps.exceptions.Timeout:
-            logger.warning(
-                f"Competitor search timeout for ({lat},{lng}), retrying in 2 s..."
-            )
+            logger.warning("Competitor search timeout for (%s,%s), retrying in 2s", lat, lng)
             time.sleep(2)
             response = _call()
 
     except googlemaps.exceptions.Timeout:
-        logger.warning(
-            f"get_nearby_competitors failed for ({lat},{lng}): timeout after retry"
-        )
+        logger.warning("get_nearby_competitors timeout after retry for (%s,%s)", lat, lng)
         return []
 
-    except Exception as e:
-        logger.warning(
-            f"get_nearby_competitors failed for ({lat},{lng}): {e}"
-        )
+    except Exception as exc:
+        logger.warning("get_nearby_competitors failed for (%s,%s): %s", lat, lng, exc)
         return []
 
     competitors = []
@@ -226,11 +192,11 @@ def get_nearby_competitors(
         })
 
     competitors.sort(key=lambda c: c["rating"], reverse=True)
-    return competitors[:10]
+    return competitors[:MAX_COMPETITORS]
 
 
 def fetch_all_data(place_id: str, category: str) -> dict:
-    """Single public entry point called by main.py.
+    """Fetch business details and nearby competitors from Google Places.
 
     Raises if get_business_details() fails (caller handles it).
     Competitor failures are swallowed so one bad nearby-search never kills
@@ -246,17 +212,16 @@ def fetch_all_data(place_id: str, category: str) -> dict:
             category=category,
             exclude_place_id=place_id,
         )
-    except Exception as e:
+    except Exception as exc:
         logger.warning(
-            f"fetch_all_data: competitor fetch raised unexpectedly for "
-            f"place_id={place_id}: {e}"
+            "fetch_all_data: competitor fetch raised unexpectedly for place_id=%s: %s",
+            place_id, exc,
         )
         competitors = []
 
     logger.info(
-        f"Fetched data for {details['name']}: "
-        f"{details['total_reviews']} reviews, "
-        f"{len(competitors)} competitors found"
+        "Fetched data for %s: %d reviews, %d competitors",
+        details["name"], details["total_reviews"], len(competitors),
     )
 
     return {

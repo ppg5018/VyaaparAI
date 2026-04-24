@@ -2,11 +2,11 @@
 Interactive quality gate: 10 synthetic profiles → manual 1-5 ratings.
 Pass threshold: overall average >= 3.5/5.
 
-Run: python test_insights.py
+Run: python tests/test_insights.py
 Log: logs/insights_test.log
 """
-import os
-import sys
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
 import logging
 
@@ -16,18 +16,12 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 if sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from insights import generate_insights
+from app.services.insights import generate_insights
+from app.logging_config import setup_logging
 
-os.makedirs("logs", exist_ok=True)
+setup_logging()
 
 _test_logger = logging.getLogger("vyaparai.insights_test")
-_test_logger.setLevel(logging.DEBUG)
-if not _test_logger.handlers:
-    _fh = logging.FileHandler("logs/insights_test.log", encoding="utf-8")
-    _fh.setLevel(logging.DEBUG)
-    _fh.setFormatter(logging.Formatter("%(asctime)s — %(levelname)s — %(message)s"))
-    _test_logger.addHandler(_fh)
 
 CRITERIA = [
     "Names specific product/category by name",
@@ -42,15 +36,11 @@ CRITERIA = [
 # Each entry: (label, business_data, scores, pos_signals)
 # ---------------------------------------------------------------------------
 PROFILES = [
-    # ------------------------------------------------------------------
-    # 1. Healthy restaurant — strong on all signals
-    # ------------------------------------------------------------------
     (
         "Profile 1 — Healthy restaurant (biz_001)",
         {
             "name": "Spice Garden Restaurant",
-            "rating": 4.5,
-            "total_reviews": 320,
+            "rating": 4.5, "total_reviews": 320,
             "lat": 12.9716, "lng": 77.5946,
             "address": "12 MG Road, Bengaluru",
             "business_status": "OPERATIONAL",
@@ -71,16 +61,11 @@ PROFILES = [
         {"final_score": 89, "review_score": 85, "competitor_score": 75, "pos_score": 92, "band": "healthy"},
         {"revenue_trend_pct": 12.5, "slow_categories": [], "top_product": "Biryani", "aov_direction": "rising"},
     ),
-
-    # ------------------------------------------------------------------
-    # 2. Struggling restaurant — bad reviews, strong competition, slow categories
-    # ------------------------------------------------------------------
     (
         "Profile 2 — Struggling restaurant (biz_002)",
         {
             "name": "Annapoorna Dhaba",
-            "rating": 3.2,
-            "total_reviews": 45,
+            "rating": 3.2, "total_reviews": 45,
             "lat": 12.9740, "lng": 77.6010,
             "address": "5 Brigade Road, Bengaluru",
             "business_status": "OPERATIONAL",
@@ -102,16 +87,11 @@ PROFILES = [
         {"revenue_trend_pct": -32.0, "slow_categories": ["Mutton Dishes", "Fish Curry"],
          "top_product": "Veg Thali", "aov_direction": "falling"},
     ),
-
-    # ------------------------------------------------------------------
-    # 3. Flat kirana — stable but slow snacks category
-    # ------------------------------------------------------------------
     (
         "Profile 3 — Flat kirana with slow snacks (biz_003)",
         {
             "name": "Ram Provision Store",
-            "rating": 3.8,
-            "total_reviews": 28,
+            "rating": 3.8, "total_reviews": 28,
             "lat": 13.0067, "lng": 77.5752,
             "address": "34 Malleswaram 8th Cross, Bengaluru",
             "business_status": "OPERATIONAL",
@@ -133,16 +113,11 @@ PROFILES = [
         {"revenue_trend_pct": 1.5, "slow_categories": ["Snacks"],
          "top_product": "Groceries", "aov_direction": "stable"},
     ),
-
-    # ------------------------------------------------------------------
-    # 4. Festival-spiking retail — sarees boom, blouses lagging
-    # ------------------------------------------------------------------
     (
         "Profile 4 — Festival-spiking retail (biz_004)",
         {
             "name": "Meera Sarees & Textiles",
-            "rating": 4.3,
-            "total_reviews": 156,
+            "rating": 4.3, "total_reviews": 156,
             "lat": 12.9850, "lng": 77.5533,
             "address": "78 Commercial Street, Bengaluru",
             "business_status": "OPERATIONAL",
@@ -164,16 +139,11 @@ PROFILES = [
         {"revenue_trend_pct": 85.0, "slow_categories": ["Blouses"],
          "top_product": "Sarees", "aov_direction": "rising"},
     ),
-
-    # ------------------------------------------------------------------
-    # 5. Weekend cafe — good coffee, slow cakes
-    # ------------------------------------------------------------------
     (
         "Profile 5 — Weekend cafe with slow cakes (biz_005)",
         {
             "name": "The Corner Cafe",
-            "rating": 4.1,
-            "total_reviews": 89,
+            "rating": 4.1, "total_reviews": 89,
             "lat": 12.9605, "lng": 77.6409,
             "address": "22 Indiranagar 12th Main, Bengaluru",
             "business_status": "OPERATIONAL",
@@ -195,16 +165,11 @@ PROFILES = [
         {"revenue_trend_pct": -5.0, "slow_categories": ["Cakes"],
          "top_product": "Coffee", "aov_direction": "stable"},
     ),
-
-    # ------------------------------------------------------------------
-    # 6. Rural manufacturer — great POS, very few reviews, no competitors
-    # ------------------------------------------------------------------
     (
         "Profile 6 — Rural manufacturer, no competitors",
         {
             "name": "Shakti Pickle Works",
-            "rating": 4.0,
-            "total_reviews": 12,
+            "rating": 4.0, "total_reviews": 12,
             "lat": 13.3410, "lng": 77.1120,
             "address": "Near APMC Yard, Tumkur Road",
             "business_status": "OPERATIONAL",
@@ -220,16 +185,11 @@ PROFILES = [
         {"revenue_trend_pct": 22.0, "slow_categories": [],
          "top_product": "Mango Pickle", "aov_direction": "rising"},
     ),
-
-    # ------------------------------------------------------------------
-    # 7. Urban cafe dominating all nearby competitors
-    # ------------------------------------------------------------------
     (
         "Profile 7 — Urban cafe beating all competitors",
         {
             "name": "Brew & Beans Cafe",
-            "rating": 4.7,
-            "total_reviews": 412,
+            "rating": 4.7, "total_reviews": 412,
             "lat": 12.9716, "lng": 77.6411,
             "address": "4 HAL 2nd Stage, Bengaluru",
             "business_status": "OPERATIONAL",
@@ -251,16 +211,11 @@ PROFILES = [
         {"revenue_trend_pct": 8.5, "slow_categories": [],
          "top_product": "Cold Brew Coffee", "aov_direction": "rising"},
     ),
-
-    # ------------------------------------------------------------------
-    # 8. Declining restaurant — new high-rated competitor opened nearby
-    # ------------------------------------------------------------------
     (
         "Profile 8 — Declining restaurant vs new competitor",
         {
             "name": "Sagar Restaurant",
-            "rating": 3.9,
-            "total_reviews": 234,
+            "rating": 3.9, "total_reviews": 234,
             "lat": 12.9585, "lng": 77.5915,
             "address": "18 Jayanagar 4th Block, Bengaluru",
             "business_status": "OPERATIONAL",
@@ -282,16 +237,11 @@ PROFILES = [
         {"revenue_trend_pct": -18.0, "slow_categories": ["Seafood"],
          "top_product": "Dal Makhani", "aov_direction": "falling"},
     ),
-
-    # ------------------------------------------------------------------
-    # 9. Premium restaurant — excellent rating, slow desserts, flat growth
-    # ------------------------------------------------------------------
     (
         "Profile 9 — Premium restaurant, slow desserts",
         {
             "name": "The Grand Punjabi",
-            "rating": 4.8,
-            "total_reviews": 178,
+            "rating": 4.8, "total_reviews": 178,
             "lat": 12.9720, "lng": 77.6035,
             "address": "9 Residency Road, Bengaluru",
             "business_status": "OPERATIONAL",
@@ -313,16 +263,11 @@ PROFILES = [
         {"revenue_trend_pct": 2.0, "slow_categories": ["Desserts"],
          "top_product": "Butter Chicken", "aov_direction": "stable"},
     ),
-
-    # ------------------------------------------------------------------
-    # 10. New business — 50 reviews, still building momentum
-    # ------------------------------------------------------------------
     (
         "Profile 10 — New tiffin business, growing",
         {
             "name": "Kavya Tiffin Center",
-            "rating": 3.8,
-            "total_reviews": 50,
+            "rating": 3.8, "total_reviews": 50,
             "lat": 13.0210, "lng": 77.5720,
             "address": "7 Rajajinagar 2nd Block, Bengaluru",
             "business_status": "OPERATIONAL",
@@ -347,10 +292,6 @@ PROFILES = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Rating helpers
-# ---------------------------------------------------------------------------
-
 def _get_int_rating(prompt_text: str) -> int:
     while True:
         try:
@@ -363,6 +304,7 @@ def _get_int_rating(prompt_text: str) -> int:
 
 
 def rate_output(label: str, output: dict) -> list[int]:
+    """Display insights and collect human ratings."""
     print(f"\n{'=' * 65}")
     print(f"  {label}")
     print(f"{'=' * 65}")
@@ -377,29 +319,23 @@ def rate_output(label: str, output: dict) -> list[int]:
     return ratings
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
 def main():
+    """Run the interactive quality gate for 10 synthetic profiles."""
     print("\nVyaaparAI — Insights Quality Gate")
     print(f"Running {len(PROFILES)} synthetic profiles. Rate each 1–5 on 5 criteria.\n")
 
     all_ratings: list[list[int]] = []
 
-    for idx, (label, business_data, scores, pos_signals) in enumerate(PROFILES, 1):
+    for idx, (label, business_data, scores, pos_signals_data) in enumerate(PROFILES, 1):
         print(f"\n[{idx}/{len(PROFILES)}] Calling Claude for: {label} ...")
         try:
-            output = generate_insights(business_data, scores, pos_signals)
+            output = generate_insights(business_data, scores, pos_signals_data)
         except Exception as exc:
             print(f"  ERROR generating insights: {exc}")
             _test_logger.error("Profile %d (%s) FAILED: %s", idx, label, exc)
             continue
 
-        _test_logger.info(
-            "Profile %d (%s) | output: %s",
-            idx, label, json.dumps(output),
-        )
+        _test_logger.info("Profile %d (%s) | output: %s", idx, label, json.dumps(output))
 
         ratings = rate_output(label, output)
         all_ratings.append(ratings)
@@ -417,9 +353,6 @@ def main():
             idx, label, ratings, profile_avg, running_avg,
         )
 
-    # ------------------------------------------------------------------
-    # Final summary
-    # ------------------------------------------------------------------
     print(f"\n{'=' * 65}")
     print("FINAL SUMMARY")
     print(f"{'=' * 65}")
@@ -441,11 +374,6 @@ def main():
         print("RESULT: PASS — quality gate cleared (>= 3.5/5)")
     else:
         print("RESULT: FAIL — quality gate not cleared (< 3.5/5)")
-        print("\nCommon fixes to iterate the prompt:")
-        print("  - Too generic → add more examples to the prompt")
-        print("  - Doesn't name products → add 'name X explicitly by name'")
-        print("  - Action too expensive → reinforce the ₹2,000 cap with an example")
-        print("  - Action too vague → require a step-by-step format")
 
     _test_logger.info(
         "=== RUN COMPLETE === profiles_rated=%d overall_avg=%.2f PASS=%s",

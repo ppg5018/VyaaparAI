@@ -1,11 +1,14 @@
 """
-test_health_score.py — validates health_score.py
+test_health_score.py — validates health_score service
 
 Part A: unit tests on each function
 Part B: full synthetic profile integration tests
 Part C: edge case integration tests
 """
-from health_score import review_score, competitor_score, pos_score, calculate_health_score
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app.services.health_score import review_score, competitor_score, pos_score, calculate_health_score
 
 _passed = 0
 _total = 0

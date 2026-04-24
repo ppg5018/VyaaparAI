@@ -1,36 +1,28 @@
 """
 End-to-end acceptance test for VyaparAI Module 1.
 
-PRE-REQUISITES before running:
+Uses FastAPI's TestClient — no live server needed.
+
+PRE-REQUISITES before this test can pass 5/5:
   1. Enable "Places API" (legacy) in GCP console for your GOOGLE_PLACES_API_KEY project.
      Go to: console.cloud.google.com → APIs & Services → Library → search "Places API"
      Enable the one called simply "Places API" (NOT "Places API (New)").
 
-  2. Fill in the 5 real Pune Place IDs below.
+  2. Fill in the 5 real Pune Place IDs in TEST_BUSINESSES below.
      How to get a Place ID: open Google Maps → search the business → click Share
-     → copy the link. The ID looks like ChIJ... in the URL. Or use:
-     https://developers.google.com/maps/documentation/places/web-service/place-id
+     → copy the link. The ID looks like ChIJ... in the URL.
 
-  3. Start the server:
-     source venv/bin/activate   (or venv\\Scripts\\activate on Windows)
-     uvicorn main:app --reload
-
-  4. Run this test:
-     python test_e2e.py
-
-Passes when: 5/5 businesses complete all 6 steps without assertion failures.
+Run: python tests/test_e2e.py
 """
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import sys
-import requests
+from fastapi.testclient import TestClient
+from app.main import app
 
-BASE = "http://localhost:8000"
+client = TestClient(app, raise_server_exceptions=False)
 
 # ── Fill in real Pune Place IDs before running ─────────────────────────────────
-# How to find a Place ID:
-#   Google Maps → search business → Share → copy link → extract ChIJ... segment.
-#   Or: maps.googleapis.com/maps/api/place/findplacefromtext/json?input=...
-
 TEST_BUSINESSES = [
     {
         "name": "Vaishali Restaurant",
@@ -76,19 +68,8 @@ See the instructions at the top of this file.
 """
 
 
-def check_server():
-    try:
-        r = requests.get(BASE + "/", timeout=5)
-        r.raise_for_status()
-        print(f"Server OK — {r.json()['status']}")
-    except Exception as exc:
-        print(f"ERROR: Cannot reach server at {BASE}")
-        print(f"  Start it with: uvicorn main:app --reload")
-        print(f"  Detail: {exc}")
-        sys.exit(1)
-
-
 def run_business(biz: dict, idx: int) -> dict:
+    """Run all 6 acceptance steps for one business and return result dict."""
     name = biz["name"]
     print(f"\n{'─' * 60}")
     print(f"Business {idx+1}/5: {name}")
@@ -109,10 +90,9 @@ def run_business(biz: dict, idx: int) -> dict:
         "category": biz["category"],
         "owner_name": biz["owner_name"],
     }
-    resp = requests.post(f"{BASE}/onboard", json=payload, timeout=30)
+    resp = client.post("/onboard", json=payload)
 
     if resp.status_code == 409:
-        # Already onboarded from a previous test run — reuse the existing ID
         business_id = resp.json()["detail"]["business_id"]
         print(f"  [onboard] Already registered — reusing business_id={business_id}")
     elif resp.status_code == 201:
@@ -128,15 +108,13 @@ def run_business(biz: dict, idx: int) -> dict:
     try:
         with open(biz["pos_csv"], "rb") as f:
             files = {"file": ("pos.csv", f, "text/csv")}
-            resp = requests.post(
-                f"{BASE}/upload-pos/{business_id}", files=files, timeout=60
-            )
+            resp = client.post(f"/upload-pos/{business_id}", files=files)
     except FileNotFoundError:
         result["failure"] = f"POS CSV not found: {biz['pos_csv']}"
         print(f"  [upload-pos] FAIL — {result['failure']}")
         return result
 
-    if resp.status_code not in (200,):
+    if resp.status_code != 200:
         result["failure"] = f"upload-pos returned {resp.status_code}: {resp.text[:200]}"
         print(f"  [upload-pos] FAIL — {result['failure']}")
         return result
@@ -145,7 +123,7 @@ def run_business(biz: dict, idx: int) -> dict:
     print(f"  [upload-pos] OK — {rows} rows ingested")
 
     # ── STEP 3: Generate report ────────────────────────────────────────────────
-    resp = requests.post(f"{BASE}/generate-report/{business_id}", timeout=120)
+    resp = client.post(f"/generate-report/{business_id}")
     if resp.status_code != 200:
         result["failure"] = f"generate-report returned {resp.status_code}: {resp.text[:200]}"
         print(f"  [generate-report] FAIL — {result['failure']}")
@@ -156,7 +134,6 @@ def run_business(biz: dict, idx: int) -> dict:
 
     # ── STEP 4: Validate report structure ──────────────────────────────────────
     failures = []
-
     if not (0 <= report["final_score"] <= 100):
         failures.append(f"final_score {report['final_score']} out of range")
     if report["band"] not in ("healthy", "watch", "at_risk"):
@@ -178,8 +155,7 @@ def run_business(biz: dict, idx: int) -> dict:
     print(f"  Action:    {report['action'][:120]}...")
 
     # ── STEP 5: Verify Supabase save ───────────────────────────────────────────
-    # Use the history endpoint as a proxy for the DB save
-    resp = requests.get(f"{BASE}/history/{business_id}?limit=1", timeout=15)
+    resp = client.get(f"/history/{business_id}?limit=1")
     if resp.status_code != 200:
         result["failure"] = f"history returned {resp.status_code}: {resp.text[:200]}"
         print(f"  [supabase-check] FAIL — {result['failure']}")
@@ -202,7 +178,7 @@ def run_business(biz: dict, idx: int) -> dict:
     print(f"  [supabase-check] OK — row saved with final_score={saved_score}")
 
     # ── STEP 6: History retrieval ──────────────────────────────────────────────
-    resp = requests.get(f"{BASE}/history/{business_id}", timeout=15)
+    resp = client.get(f"/history/{business_id}")
     assert resp.status_code == 200, f"history status {resp.status_code}"
     h = resp.json()
     assert h["count"] >= 1, "history count should be >= 1"
@@ -216,9 +192,9 @@ def run_business(biz: dict, idx: int) -> dict:
     return result
 
 
-def main():
+def main() -> None:
+    """Run the full e2e acceptance test for all 5 businesses."""
     print(PLACEHOLDER_WARN)
-    check_server()
 
     results = []
     for idx, biz in enumerate(TEST_BUSINESSES):

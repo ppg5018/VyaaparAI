@@ -1,15 +1,15 @@
 """
-Run this after filling in real Pune Place IDs to verify the pipeline.
-Get Place IDs: Google Maps → search a business → share link → copy ChIJ... ID.
+test_google_places.py — end-to-end test for the google_places service.
 
-Usage:
-    python test_google_places.py
+PRE-REQUISITE: Enable "Places API" (legacy) in GCP console.
+  console.cloud.google.com → APIs & Services → Library → "Places API"
+
+Run: python tests/test_google_places.py
 """
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dotenv import load_dotenv
-load_dotenv()
-
-from google_places import fetch_all_data
+from app.services.google_places import fetch_all_data
 
 TEST_PLACE_IDS = [
     ("ChIJrTLr-GyuEmsRBfy61i59si0", "cafe"),        # Starbucks (baseline)
@@ -19,7 +19,9 @@ TEST_PLACE_IDS = [
     ("ChIJh8P6z5sUrjsR0s7iQn7y1nA", "restaurant"),  # Vidyarthi Bhavan, Gandhi Bazaar
 ]
 
-def run_tests():
+
+def run_tests() -> None:
+    """Fetch data for all test places and report success/failure."""
     success_count = 0
     total_competitors = 0
     errors = []
@@ -40,7 +42,7 @@ def run_tests():
                 snippet = data["reviews"][0]["text"][:100]
                 print(f"  Top review:  \"{snippet}\"")
             else:
-                print(f"  Top review:  (none returned)")
+                print("  Top review:  (none returned)")
 
             n_comp = len(data["competitors"])
             print(f"  Competitors: {n_comp} found")
@@ -50,16 +52,16 @@ def run_tests():
             total_competitors += n_comp
             success_count += 1
 
-        except ValueError as e:
-            msg = f"[ValueError] {place_id}: {e}"
+        except ValueError as exc:
+            msg = f"[ValueError] {place_id}: {exc}"
             print(f"  ERROR: {msg}")
             errors.append(msg)
-        except RuntimeError as e:
-            msg = f"[RuntimeError] {place_id}: {e}"
+        except RuntimeError as exc:
+            msg = f"[RuntimeError] {place_id}: {exc}"
             print(f"  ERROR: {msg}")
             errors.append(msg)
-        except Exception as e:
-            msg = f"[{type(e).__name__}] {place_id}: {e}"
+        except Exception as exc:
+            msg = f"[{type(exc).__name__}] {place_id}: {exc}"
             print(f"  ERROR: {msg}")
             errors.append(msg)
 

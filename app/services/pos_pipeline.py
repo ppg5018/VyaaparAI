@@ -1,47 +1,32 @@
-import os
 import logging
 from datetime import datetime, timedelta
 
 import pandas as pd
-from supabase import create_client
-from dotenv import load_dotenv
 
-load_dotenv()
-os.makedirs("logs", exist_ok=True)
+from app.database import supabase
+from app.config import (
+    SLOW_THRESHOLD,
+    MIN_REVENUE_PER_DAY_FOR_SLOW_FLAG,
+    AOV_CHANGE_THRESHOLD_PCT,
+    BATCH_SIZE,
+)
 
-_fmt = logging.Formatter("%(asctime)s — %(levelname)s — %(message)s")
-logger = logging.getLogger("vyaparai.pos_pipeline")
-logger.setLevel(logging.INFO)
-if not logger.handlers:
-    _fh = logging.FileHandler("logs/module1.log")
-    _fh.setLevel(logging.INFO)
-    _fh.setFormatter(_fmt)
-    _ch = logging.StreamHandler()
-    _ch.setLevel(logging.WARNING)
-    _ch.setFormatter(_fmt)
-    logger.addHandler(_fh)
-    logger.addHandler(_ch)
-
-supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+logger = logging.getLogger(__name__)
 
 REQUIRED_COLUMNS = [
     "date", "product_category", "units_sold", "revenue",
     "transaction_count", "avg_order_value",
 ]
-# 0.35 (not 0.30) catches biz_003 Snacks whose slow_factor is exactly 0.30
-SLOW_THRESHOLD = 0.35
-# Revenue-based minimum prevents false positives on genuinely empty categories
-# and avoids the units-based MIN_VOLUME problem with high-price items (Footwear ₹700/unit)
-MIN_REVENUE_PER_DAY_FOR_SLOW_FLAG = 50.0
-AOV_CHANGE_THRESHOLD_PCT = 5
 
 
-def _chunks(lst, n):
+def _chunks(lst: list, n: int):
+    """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
 
 def _null_signals() -> dict:
+    """Return an all-None signals dict used when no POS data exists."""
     return {
         "revenue_trend_pct": None,
         "slow_categories": [],
@@ -57,6 +42,7 @@ def ingest_pos_csv(filepath: str, business_id: str) -> int:
     Raises FileNotFoundError or ValueError for bad inputs.
     Raises RuntimeError on Supabase write failure.
     """
+    import os
     logger.info("Ingesting CSV: %s for business_id=%s", filepath, business_id)
 
     if not os.path.exists(filepath):
@@ -70,7 +56,6 @@ def ingest_pos_csv(filepath: str, business_id: str) -> int:
             f"CSV missing required columns: {missing}. Found: {list(df.columns)}"
         )
 
-    # --- coerce types ---
     try:
         df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
     except Exception as exc:
@@ -109,7 +94,7 @@ def ingest_pos_csv(filepath: str, business_id: str) -> int:
         len(df), df["date"].min(), df["date"].max(),
     )
 
-    # --- duplicate detection ---
+    # Duplicate detection
     unique_dates = df["date"].unique().tolist()
     existing_set: set[tuple] = set()
     if unique_dates:
@@ -157,7 +142,7 @@ def ingest_pos_csv(filepath: str, business_id: str) -> int:
 
     total_inserted = 0
     try:
-        for batch in _chunks(records, 500):
+        for batch in _chunks(records, BATCH_SIZE):
             resp = supabase.table("pos_records").insert(batch).execute()
             n = len(resp.data)
             if n != len(batch):
@@ -173,7 +158,9 @@ def ingest_pos_csv(filepath: str, business_id: str) -> int:
             f"Failed to insert POS records for business {business_id}: {exc}"
         ) from exc
 
-    logger.info("Inserted %d rows into pos_records for business_id=%s", total_inserted, business_id)
+    logger.info(
+        "Inserted %d rows into pos_records for business_id=%s", total_inserted, business_id
+    )
     return total_inserted
 
 
@@ -210,13 +197,16 @@ def pos_signals(business_id: str, days: int = 30) -> dict:
     df["revenue"] = pd.to_numeric(df["revenue"], errors="coerce").fillna(0.0)
     df["avg_order_value"] = pd.to_numeric(df["avg_order_value"], errors="coerce").fillna(0.0)
 
-    logger.info("Found %d records in last %d days for business_id=%s", len(df), days * 2, business_id)
+    logger.info(
+        "Found %d records in last %d days for business_id=%s",
+        len(df), days * 2, business_id,
+    )
 
     recent_cutoff = pd.Timestamp(today - timedelta(days=days))
     recent_df = df[df["date"] >= recent_cutoff]
     prior_df = df[df["date"] < recent_cutoff]
 
-    # --- revenue_trend_pct ---
+    # Revenue trend
     trend = None
     try:
         recent_rev = recent_df["revenue"].sum()
@@ -226,19 +216,17 @@ def pos_signals(business_id: str, days: int = 30) -> dict:
     except Exception as exc:
         logger.warning("revenue_trend_pct computation failed: %s", exc)
 
-    # --- slow_categories ---
-    # Compare last 14 days vs prior period (days 30–60 ago).
-    # Using revenue avoids the units-based bias for high-price categories (e.g. Footwear ₹700/unit).
-    slow_cats = []
+    # Slow categories — compare last 14 days vs prior period (days 30–60 ago)
+    slow_cats: list[str] = []
     try:
         last_14_cutoff = pd.Timestamp(today - timedelta(days=14))
-        prior_slow_end = pd.Timestamp(today - timedelta(days=days))  # 30 days ago
+        prior_slow_end = pd.Timestamp(today - timedelta(days=days))
 
         recent_14_df = df[df["date"] >= last_14_cutoff]
         prior_slow_df = df[df["date"] < prior_slow_end]
 
-        PRIOR_DAYS = days        # 30 calendar days in the prior window
-        RECENT_DAYS = 14         # 14-day comparison window
+        PRIOR_DAYS = days
+        RECENT_DAYS = 14
 
         for cat in df["product_category"].unique():
             cat_prior = prior_slow_df[prior_slow_df["product_category"] == cat]["revenue"].sum()
@@ -258,7 +246,7 @@ def pos_signals(business_id: str, days: int = 30) -> dict:
         logger.warning("slow_categories computation failed: %s", exc)
         slow_cats = []
 
-    # --- top_product ---
+    # Top product by revenue in recent period
     top_product = None
     try:
         if not recent_df.empty:
@@ -268,7 +256,7 @@ def pos_signals(business_id: str, days: int = 30) -> dict:
     except Exception as exc:
         logger.warning("top_product computation failed: %s", exc)
 
-    # --- aov_direction ---
+    # AOV direction
     aov_direction = None
     try:
         recent_aov = recent_df["avg_order_value"].mean()
@@ -293,7 +281,7 @@ def pos_signals(business_id: str, days: int = 30) -> dict:
         "aov_direction": aov_direction,
     }
     logger.info(
-        "Signals for business_id=%s: trend=%s%%, slow=%s, top=%s, aov=%s",
+        "Signals for business_id=%s: trend=%s%% slow=%s top=%s aov=%s",
         business_id, trend, slow_cats, top_product, aov_direction,
     )
     return signals

@@ -1,34 +1,21 @@
 import math
 import logging
-import os
 
-os.makedirs("logs", exist_ok=True)
+from app.config import (
+    REVIEW_WEIGHT,
+    COMPETITOR_WEIGHT,
+    POS_WEIGHT,
+    HEALTHY_THRESHOLD,
+    WATCH_THRESHOLD,
+    NO_COMPETITORS_NEUTRAL,
+    NO_POS_DATA_NEUTRAL,
+)
 
-_fmt = logging.Formatter("%(asctime)s — %(levelname)s — %(message)s")
-logger = logging.getLogger("vyaparai.health_score")
-logger.setLevel(logging.DEBUG)
-if not logger.handlers:
-    _fh = logging.FileHandler("logs/module1.log")
-    _fh.setLevel(logging.DEBUG)
-    _fh.setFormatter(_fmt)
-    _ch = logging.StreamHandler()
-    _ch.setLevel(logging.WARNING)
-    _ch.setFormatter(_fmt)
-    logger.addHandler(_fh)
-    logger.addHandler(_ch)
-
-REVIEW_WEIGHT = 0.40
-COMPETITOR_WEIGHT = 0.25
-POS_WEIGHT = 0.35
-
-NO_COMPETITORS_NEUTRAL = 65
-NO_POS_DATA_NEUTRAL = 50
-
-HEALTHY_THRESHOLD = 80
-WATCH_THRESHOLD = 60
+logger = logging.getLogger(__name__)
 
 
 def review_score(rating: float, total_reviews: int, recent_reviews: list) -> int:
+    """Compute 0-100 review quality score from Google Places data."""
     if not rating:
         return 0
 
@@ -59,6 +46,7 @@ def review_score(rating: float, total_reviews: int, recent_reviews: list) -> int
 
 
 def competitor_score(my_rating: float, competitors: list) -> int:
+    """Compute 0-100 competitive position score vs nearby businesses."""
     if not my_rating:
         return NO_COMPETITORS_NEUTRAL
 
@@ -84,6 +72,7 @@ def competitor_score(my_rating: float, competitors: list) -> int:
 
 
 def pos_score(signals: dict) -> int:
+    """Compute 0-100 POS health score from revenue trend, inventory, and AOV signals."""
     if not signals:
         return NO_POS_DATA_NEUTRAL
 
@@ -140,7 +129,12 @@ def pos_score(signals: dict) -> int:
 
 
 def calculate_health_score(review_s: int, competitor_s: int, pos_s: int) -> dict:
-    final = int(review_s * REVIEW_WEIGHT + competitor_s * COMPETITOR_WEIGHT + pos_s * POS_WEIGHT)
+    """Compute final weighted health score and band from three sub-scores."""
+    final = int(
+        review_s * REVIEW_WEIGHT
+        + competitor_s * COMPETITOR_WEIGHT
+        + pos_s * POS_WEIGHT
+    )
     final = max(0, min(100, final))
 
     if final >= HEALTHY_THRESHOLD:
@@ -151,7 +145,7 @@ def calculate_health_score(review_s: int, competitor_s: int, pos_s: int) -> dict
         band = "at_risk"
 
     logger.info(
-        "Health score computed: final=%d, review=%d, competitor=%d, pos=%d, band=%s",
+        "Health score computed: final=%d review=%d competitor=%d pos=%d band=%s",
         final, review_s, competitor_s, pos_s, band,
     )
 

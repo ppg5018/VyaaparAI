@@ -1,31 +1,15 @@
-import os
 import json
 import logging
 
 import anthropic
-from dotenv import load_dotenv
 
-load_dotenv()
-os.makedirs("logs", exist_ok=True)
+from app.config import ANTHROPIC_API_KEY, CLAUDE_MODEL, MAX_TOKENS
 
-_fmt = logging.Formatter("%(asctime)s — %(levelname)s — %(message)s")
-logger = logging.getLogger("vyaparai.insights")
-logger.setLevel(logging.DEBUG)
-if not logger.handlers:
-    _fh = logging.FileHandler("logs/module1.log", encoding="utf-8")
-    _fh.setLevel(logging.DEBUG)
-    _fh.setFormatter(_fmt)
-    _ch = logging.StreamHandler()
-    _ch.setLevel(logging.WARNING)
-    _ch.setFormatter(_fmt)
-    logger.addHandler(_fh)
-    logger.addHandler(_ch)
-
-MODEL = "claude-sonnet-4-20250514"
-MAX_TOKENS = 800
+logger = logging.getLogger(__name__)
 
 
 def build_prompt(business_data: dict, scores: dict, pos_signals: dict) -> str:
+    """Assemble the full Claude prompt from business data, scores, and POS signals."""
     name = business_data.get("name", "Unknown Business")
     rating = business_data.get("rating", 0.0)
     total_reviews = business_data.get("total_reviews", 0)
@@ -105,6 +89,7 @@ Return ONLY valid JSON, no markdown, no preamble:
 
 
 def strip_markdown(text: str) -> str:
+    """Remove markdown code fences from Claude's response before json.loads()."""
     text = text.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else text[3:]
@@ -114,9 +99,10 @@ def strip_markdown(text: str) -> str:
 
 
 def _call_claude(prompt: str) -> str:
-    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    """Send a single prompt to Claude and return the raw text response."""
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     msg = client.messages.create(
-        model=MODEL,
+        model=CLAUDE_MODEL,
         max_tokens=MAX_TOKENS,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -124,6 +110,7 @@ def _call_claude(prompt: str) -> str:
 
 
 def _parse_and_validate(response_text: str) -> dict:
+    """Parse and structurally validate Claude's JSON output."""
     cleaned = strip_markdown(response_text)
     result = json.loads(cleaned)
     assert "insights" in result and isinstance(result["insights"], list)
@@ -134,13 +121,13 @@ def _parse_and_validate(response_text: str) -> dict:
 
 
 def generate_insights(business_data: dict, scores: dict, pos_signals: dict) -> dict:
-    """Call Claude, parse JSON insights, retry once on failure.
+    """Call Claude API, parse JSON insights, retry once on parse failure.
 
     Returns: {"insights": [str, str, str], "action": str}
     Raises:
-        anthropic.RateLimitError: caller must handle backoff
-        anthropic.AuthenticationError: caller must fix API key
-        RuntimeError: if both attempts fail to produce valid JSON
+        anthropic.RateLimitError: caller must handle backoff.
+        anthropic.AuthenticationError: caller must fix API key.
+        RuntimeError: if both attempts fail to produce valid JSON.
     """
     prompt = build_prompt(business_data, scores, pos_signals)
     response_text = None
