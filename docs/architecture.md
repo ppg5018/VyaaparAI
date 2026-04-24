@@ -10,52 +10,77 @@ Update this file after every major structural change to the codebase.
 Developer (CLI / Swagger UI)
         │
         ▼
-   FastAPI (main.py)
+   FastAPI (app/main.py)
    localhost:8000
         │
         ├── POST /onboard ──────────────────────► Supabase: businesses table
+        │   (app/api/onboard.py)
         │
         ├── POST /upload-pos/{id} ──────────────► Supabase: pos_records table
-        │                                           (via pos_pipeline.py)
+        │   (app/api/pos.py)                        (via app/services/pos_pipeline.py)
         │
         ├── POST /generate-report/{id}
+        │   (app/api/report.py)
         │         │
-        │         ├── google_places.py ──────────► Google Places API
-        │         │   (fetch details + competitors)    (external)
-        │         │         │
-        │         │         ▼
-        │         │   Supabase: reviews_cache table
+        │         ├── app/services/google_places.py ► Google Places API
+        │         │   (fetch details + competitors)      (external)
         │         │
-        │         ├── health_score.py ───────────► Pure Python computation
-        │         │   review_score()                 (no external calls)
+        │         ├── app/services/health_score.py ─► Pure Python computation
+        │         │   review_score()                    (no external calls)
         │         │   competitor_score()
-        │         │   pos_score()  ◄─── pos_pipeline.py ◄── Supabase: pos_records
+        │         │   pos_score()  ◄── pos_pipeline.py ◄── Supabase: pos_records
         │         │   calculate_health_score()
         │         │
-        │         ├── insights.py ───────────────► Anthropic Claude API
-        │         │   generate_insights()             (external)
+        │         ├── app/services/insights.py ──────► Anthropic Claude API
+        │         │   generate_insights()                (external)
         │         │   (injects all signals into prompt)
         │         │
-        │         └──────────────────────────────► Supabase: health_scores table
-        │                                           (save final report)
+        │         └──────────────────────────────────► Supabase: health_scores table
+        │                                               (save final report)
         │
-        └── GET /history/{id} ─────────────────► Supabase: health_scores table
-                                                   (read last 12 scores)
+        └── GET /history/{id} ──────────────────────► Supabase: health_scores table
+            (app/api/history.py)                        (read last 12 scores)
 ```
 
 ---
 
 ## Component responsibilities
 
-### main.py — FastAPI app
+### app/main.py — FastAPI factory
 
-- Defines all 4 endpoints
-- Handles request validation (Pydantic models)
-- Orchestrates calls to other modules
-- Returns JSON responses
-- Does NOT contain business logic — delegates to other files
+- Creates the FastAPI app via `create_app()`, registers 4 APIRouters
+- Calls `setup_logging()` once at startup
+- Does NOT contain business logic — delegates entirely to `app/api/` and `app/services/`
 
-### google_places.py — Google data pipeline
+### app/config.py — Centralised configuration
+
+- Single source of truth for all `os.getenv()` calls and numeric constants
+- All services import named constants from here (no raw `os.getenv()` anywhere else)
+- Constants: all API keys, CLAUDE_MODEL, MAX_TOKENS, score weights, thresholds, BATCH_SIZE, etc.
+
+### app/database.py — Supabase singleton
+
+- Creates and exports a single `supabase` client instance
+- All services do `from app.database import supabase`
+
+### app/logging_config.py — Logging setup
+
+- `setup_logging()` creates `logs/module1.log` and sets log levels
+- Suppresses noisy loggers: httpx, anthropic, supabase, httpcore
+
+### app/models.py — Pydantic v2 models
+
+- `OnboardRequest` (with `@field_validator` for category validation)
+- `OnboardResponse`, `UploadPOSResponse`, `SubScores`, `ReportResponse`, `HistoryScore`, `HistoryResponse`
+
+### app/api/ — Endpoint routers
+
+- `onboard.py` — `POST /onboard` — register a business, validate place_id
+- `pos.py` — `POST /upload-pos/{business_id}` — ingest POS CSV via UploadFile
+- `report.py` — `POST /generate-report/{business_id}` — full scoring + insights pipeline
+- `history.py` — `GET /history/{business_id}` — last N health score records
+
+### app/services/google_places.py — Google data pipeline
 
 **Functions:**
 - `get_business_details(place_id: str) -> dict` — calls `gmaps.place()`, returns name, rating, review count, GPS, last 5 reviews
@@ -66,7 +91,7 @@ Developer (CLI / Swagger UI)
 **External dependency:** Google Maps Python client → Google Places API
 **Error handling:** try/except on all gmaps calls, 1 retry on timeout, ValueError on bad place_id
 
-### health_score.py — Scoring engine
+### app/services/health_score.py — Scoring engine
 
 **Functions:**
 - `review_score(rating, total_reviews, recent_reviews) -> int` — 0–100
@@ -77,7 +102,7 @@ Developer (CLI / Swagger UI)
 **External dependencies:** None (pure computation)
 **Weights:** review × 0.40, competitor × 0.25, pos × 0.35
 
-### insights.py — Claude API integration
+### app/services/insights.py — Claude API integration
 
 **Functions:**
 - `build_prompt(business_data, scores, pos_signals) -> str` — assembles the full prompt
@@ -88,7 +113,7 @@ Developer (CLI / Swagger UI)
 **Output schema:** `{"insights": [str, str, str], "action": str}`
 **Retry logic:** if json.loads() fails, retry once with stricter ending instruction
 
-### pos_pipeline.py — POS data layer
+### app/services/pos_pipeline.py — POS data layer
 
 **Functions:**
 - `ingest_pos_csv(filepath, business_id) -> int` — validates, converts dates, bulk inserts, returns row count
@@ -97,7 +122,7 @@ Developer (CLI / Swagger UI)
 **External dependency:** Supabase client (reads/writes pos_records)
 **Fallback:** if no records found for business_id, returns all None values → triggers pos_score neutral (50)
 
-### generate_synthetic_pos.py — Test data factory
+### scripts/generate_synthetic_pos.py — Test data factory
 
 **Functions:**
 - `generate_business_pos(business_id, days=90, categories=None) -> pd.DataFrame` — creates realistic daily sales with patterns
@@ -193,5 +218,5 @@ CREATE INDEX idx_scores_biz ON health_scores(business_id, created_at DESC);
 
 ---
 
-*architecture.md · VyaparAI Module 1 · Last updated: April 2026*
+*architecture.md · VyaparAI Module 1 · Last updated: 24 April 2026 (Session 7 — modular refactor: app/, services/, tests/, scripts/)*
 *Update this file whenever: a new file is added, a function signature changes, a table is modified, or a key decision is made.*

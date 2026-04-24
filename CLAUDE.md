@@ -14,7 +14,7 @@ MVP — building and testing locally. No deployment yet.
 
 ## Architecture in one paragraph
 
-`main.py` is the FastAPI app with 4 endpoints. `/onboard` registers a business. `/upload-pos` ingests a CSV into `pos_records`. `/generate-report` runs the full pipeline: `google_places.py` fetches data → `health_score.py` computes 3 sub-scores → `pos_pipeline.py` computes POS signals → `insights.py` calls Claude API → result saved to `health_scores` table in Supabase. `/history` returns past scores. All data lives in Supabase PostgreSQL. No caching layer. No auth.
+`app/main.py` is the lean FastAPI factory that registers 4 APIRouters from `app/api/`. All env vars and constants live in `app/config.py`; all services import named constants from there. `app/database.py` holds the single Supabase client. `/onboard` registers a business. `/upload-pos` ingests a CSV into `pos_records`. `/generate-report` runs the full pipeline: `app/services/google_places.py` fetches data → `app/services/health_score.py` computes 3 sub-scores → `app/services/pos_pipeline.py` computes POS signals → `app/services/insights.py` calls Claude API → result saved to `health_scores` table in Supabase. `/history` returns past scores. All data lives in Supabase PostgreSQL. No caching layer. No auth.
 
 ## Tech stack
 
@@ -28,18 +28,31 @@ MVP — building and testing locally. No deployment yet.
 
 | File | Status | Purpose |
 |---|---|---|
-| `main.py` | exists — complete | FastAPI app with 4 endpoints + Pydantic v2 validation |
-| `google_places.py` | exists — complete | Google Places fetch + parse (4 functions) |
-| `health_score.py` | exists — complete | Score engine — review + competitor + POS sub-scores |
-| `insights.py` | exists — complete | Claude API call + JSON parse, retry logic |
-| `pos_pipeline.py` | exists — complete | POS ingestion + signal computation |
-| `generate_synthetic_pos.py` | exists — complete | Faker + Pandas CSV generator — 5 profiles, 90-day data, reproducible (SEED=42) |
-| `test_connections.py` | exists | Verifies Supabase connectivity |
-| `test_google_places.py` | exists | End-to-end test for google_places.py (5 Bangalore place IDs) |
-| `test_pos_pipeline.py` | exists | End-to-end test for pos_pipeline.py (14 signal assertions, requires Supabase) |
-| `test_health_score.py` | exists | Unit + integration tests for health_score.py (23 assertions, no external deps) |
-| `test_e2e.py` | exists | End-to-end acceptance test — 5 businesses × 6 steps; requires GCP Places API enabled + real Pune Place IDs filled in |
-| `data/business_biz_00{1-5}_pos.csv` | exists — generated | 90-day synthetic POS CSVs (360–450 rows each); re-generate with `python generate_synthetic_pos.py` |
+| `app/main.py` | exists — complete | FastAPI factory — registers 4 APIRouters, calls setup_logging() |
+| `app/config.py` | exists — complete | Single source of truth for all env vars and numeric constants |
+| `app/database.py` | exists — complete | Singleton Supabase client |
+| `app/logging_config.py` | exists — complete | setup_logging() — file + console handlers, suppresses noisy loggers |
+| `app/models.py` | exists — complete | All Pydantic v2 models — OnboardRequest, ReportResponse, etc. |
+| `app/api/onboard.py` | exists — complete | POST /onboard router |
+| `app/api/pos.py` | exists — complete | POST /upload-pos/{business_id} router |
+| `app/api/report.py` | exists — complete | POST /generate-report/{business_id} router |
+| `app/api/history.py` | exists — complete | GET /history/{business_id} router |
+| `app/services/google_places.py` | exists — complete | Google Places fetch + parse (4 functions) |
+| `app/services/health_score.py` | exists — complete | Score engine — review + competitor + POS sub-scores |
+| `app/services/insights.py` | exists — complete | Claude API call + JSON parse, retry logic |
+| `app/services/pos_pipeline.py` | exists — complete | POS ingestion + signal computation |
+| `scripts/generate_synthetic_pos.py` | exists — complete | Faker + Pandas CSV generator — 5 profiles, 90-day data, reproducible (SEED=42) |
+| `scripts/seed_test_data.py` | exists — complete | CLI tool to upload a synthetic CSV to a given business_id |
+| `tests/test_connections.py` | exists | Verifies Supabase connectivity |
+| `tests/test_google_places.py` | exists | End-to-end test for google_places.py (5 Bangalore place IDs) |
+| `tests/test_pos_pipeline.py` | exists | End-to-end test for pos_pipeline.py (requires Supabase) |
+| `tests/test_health_score.py` | exists | Unit + integration tests for health_score.py (23 assertions, no external deps) |
+| `tests/test_csv_scoring.py` | exists | CSV-based scoring test with mock Google data (no Supabase) |
+| `tests/test_insights.py` | exists | Insights quality gate — 10 profiles × Claude call (requires ANTHROPIC_API_KEY) |
+| `tests/test_e2e.py` | exists | End-to-end acceptance test — 5 businesses × 6 steps via TestClient |
+| `conftest.py` | exists | Empty conftest marks project root for pytest |
+| `pytest.ini` | exists | testpaths = tests, pythonpath = . |
+| `data/business_biz_00{1-5}_pos.csv` | exists — generated | 90-day synthetic POS CSVs (360–450 rows each); re-generate with `python scripts/generate_synthetic_pos.py` |
 
 ## Database tables
 
@@ -98,7 +111,7 @@ SUPABASE_KEY
 
 ```bash
 source venv/bin/activate
-uvicorn main:app --reload
+uvicorn app.main:app --reload
 # Swagger UI at localhost:8000/docs
 ```
 
@@ -121,4 +134,4 @@ uvicorn main:app --reload
 
 ---
 
-*Last updated: 24 April 2026 (Session 4 — main.py complete, test_e2e.py written; GCP Places API still blocked)*
+*Last updated: 24 April 2026 (Session 7 — modular refactor complete: app/, app/api/, app/services/, tests/, scripts/; uvicorn entry point is now `app.main:app`)*
