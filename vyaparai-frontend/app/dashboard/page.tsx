@@ -8,6 +8,7 @@ import {
 } from '@/lib/api';
 import { useBusinessId } from '@/lib/business-context';
 import { useAuth } from '@/lib/auth-context';
+import { useViewport } from '@/lib/use-viewport';
 import { Bars, Gauge, Logo, Skeleton, Stat, ThemeToggle } from '@/components/ui';
 
 // ─── Static data (not yet available from API) ──────────────────────────────────
@@ -162,6 +163,7 @@ function ActionBanner({ action, ctx }: { action: string; ctx: ActionsCtx }) {
   const existing = ctx.actions.find((a) => a.kind === 'weekly_action_done' && a.target_text === action);
   const isDone   = !!existing;
   const [busy, setBusy] = useState(false);
+  const { isMobile } = useViewport();
 
   const onClick = async () => {
     if (busy) return;
@@ -181,7 +183,11 @@ function ActionBanner({ action, ctx }: { action: string; ctx: ActionsCtx }) {
         : 'linear-gradient(135deg, rgba(245,166,35,0.1), rgba(139,111,255,0.1))',
       border: `1px solid ${isDone ? 'rgba(16,217,160,0.3)' : 'var(--border2)'}`,
       borderRadius: 'var(--r2)',
-      padding: '18px 20px', display: 'flex', alignItems: 'flex-start', gap: 14, marginTop: 16,
+      padding: isMobile ? '14px 16px' : '18px 20px',
+      display: 'flex',
+      flexDirection: isMobile ? 'column' : 'row',
+      alignItems: isMobile ? 'stretch' : 'flex-start',
+      gap: isMobile ? 12 : 14, marginTop: 16,
       transition: 'background 250ms, border-color 250ms',
     }}>
       <div style={{ width: 36, height: 36, background: isDone ? 'var(--emerald)' : 'var(--gold)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 250ms' }}>
@@ -368,6 +374,10 @@ type ReviewFilter = 'all' | 'positive' | 'negative';
 
 function OverviewTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx }) {
   const band = mapBand(report.band);
+  const { isMobile, isTablet } = useViewport();
+  const overviewCols = isMobile ? '1fr'
+    : isTablet ? '1fr'
+    : '280px minmax(0, 1fr) minmax(0, 1fr)';
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all');
 
   const allReviews = report.reviews.filter((r) => r.text.trim());
@@ -416,7 +426,7 @@ function OverviewTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx })
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr) minmax(0, 1fr)', gap: 16, alignItems: 'stretch' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: overviewCols, gap: 16, alignItems: 'stretch' }}>
 
         {/* Col 1 — Health Score */}
         <div style={{ ...CARD, padding: '22px 20px', display: 'flex', flexDirection: 'column' }}>
@@ -601,6 +611,8 @@ function InsightCard({ text, idx, ctx }: { text: string; idx: number; ctx: Actio
 function InsightsTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx }) {
   const ca = report.competitor_analysis;
   const hasAnalysis = ca && (ca.themes.length > 0 || ca.opportunities.length > 0);
+  const { isMobile } = useViewport();
+  const insightsCols = isMobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -625,7 +637,7 @@ function InsightsTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx })
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: insightsCols, gap: 16, alignItems: 'start' }}>
 
         {/* Left — Insights for the user */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -691,9 +703,11 @@ function CompetitorsTab({ report }: { report: HealthReport }) {
   const myRating    = report.google_rating;
   const competitors = report.competitors;
   const topThreat   = competitors.find((c) => c.rating > myRating);
+  const { isMobile } = useViewport();
+  const cols = isMobile ? '1fr' : '1fr 1fr';
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 16, alignItems: 'start' }}>
       <div style={CARD}>
         <span style={SEC}>Nearby Competitors · 800m radius</span>
         {competitors.length === 0 ? (
@@ -757,9 +771,11 @@ function CompetitorsTab({ report }: { report: HealthReport }) {
 
 // ─── TAB: POS ──────────────────────────────────────────────────────────────────
 function PosTab({ report }: { report: HealthReport }) {
+  const { isMobile } = useViewport();
+  const cols = isMobile ? '1fr' : '1fr 1fr';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 16, alignItems: 'start' }}>
         <div style={CARD}>
           <span style={SEC}>Revenue by Category</span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1026,6 +1042,8 @@ export default function DashboardPage() {
   const [menuOpen,     setMenuOpen]     = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const { isMobile } = useViewport();
+
   const handleLogAction = useCallback(async (kind: ActionEntry['kind'], targetText: string, note?: string) => {
     if (!businessId) return;
     const entry = await logAction(businessId, kind, targetText, note);
@@ -1120,34 +1138,41 @@ export default function DashboardPage() {
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)' }}>
 
       {/* ── Nav ────────────────────────────────────────── */}
-      <nav style={{ position: 'sticky', top: 0, zIndex: 100, background: 'var(--nav-bg)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', borderBottom: '1px solid var(--border)', height: 60, display: 'flex', alignItems: 'center', padding: '0 20px', gap: 12 }}>
-        <Logo size={26} />
+      <nav style={{ position: 'sticky', top: 0, zIndex: 100, background: 'var(--nav-bg)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', borderBottom: '1px solid var(--border)', height: 60, display: 'flex', alignItems: 'center', padding: isMobile ? '0 12px' : '0 20px', gap: isMobile ? 8 : 12 }}>
+        <Logo size={isMobile ? 22 : 26} />
 
-        <div style={{ display: 'flex', gap: 2, flex: 1, justifyContent: 'center' }}>
+        <div style={{
+          display: 'flex', gap: 2, flex: 1,
+          justifyContent: isMobile ? 'flex-start' : 'center',
+          overflowX: 'auto', overflowY: 'hidden',
+          scrollbarWidth: 'none', msOverflowStyle: 'none',
+        }} className="hide-scrollbar">
           {TABS.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
               onMouseEnter={() => setHoveredTab(t.id)} onMouseLeave={() => setHoveredTab(null)}
-              style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: tab === t.id ? 'rgba(255,255,255,0.08)' : 'transparent', color: tab === t.id ? 'var(--text)' : hoveredTab === t.id ? 'var(--text2)' : 'var(--text3)', fontWeight: tab === t.id ? 600 : 400, fontSize: 13, cursor: 'pointer', transition: 'background 150ms, color 150ms', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+              style={{ padding: isMobile ? '6px 10px' : '6px 14px', borderRadius: 8, border: 'none', background: tab === t.id ? 'rgba(255,255,255,0.08)' : 'transparent', color: tab === t.id ? 'var(--text)' : hoveredTab === t.id ? 'var(--text2)' : 'var(--text3)', fontWeight: tab === t.id ? 600 : 400, fontSize: isMobile ? 12 : 13, cursor: 'pointer', transition: 'background 150ms, color 150ms', fontFamily: 'inherit', whiteSpace: 'nowrap', flexShrink: 0 }}>
               {t.label}
             </button>
           ))}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 8, flexShrink: 0 }}>
           <ThemeToggle />
-          <button onClick={handleRefresh} disabled={refreshing} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 11px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text2)', fontSize: 12, cursor: refreshing ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: refreshing ? 0.6 : 1, transition: 'opacity 150ms' }}>
+          <button onClick={handleRefresh} disabled={refreshing} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isMobile ? '6px 8px' : '5px 11px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text2)', fontSize: 12, cursor: refreshing ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: refreshing ? 0.6 : 1, transition: 'opacity 150ms' }}>
             {refreshing ? <Spin size={12} /> : (
               <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
                 <path d="M1 4v6h6" /><path d="M23 20v-6h-6" />
                 <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15" />
               </svg>
             )}
-            Refresh
+            {!isMobile && 'Refresh'}
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--emerald-dim)', border: '1px solid rgba(16,217,160,0.25)', borderRadius: 999, padding: '4px 10px', fontSize: 11, fontWeight: 500, color: 'var(--emerald)' }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--emerald)', animation: 'pulse 2s ease-in-out infinite', display: 'inline-block', flexShrink: 0 }} />
-            Mon 8AM
-          </div>
+          {!isMobile && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--emerald-dim)', border: '1px solid rgba(16,217,160,0.25)', borderRadius: 999, padding: '4px 10px', fontSize: 11, fontWeight: 500, color: 'var(--emerald)' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--emerald)', animation: 'pulse 2s ease-in-out infinite', display: 'inline-block', flexShrink: 0 }} />
+              Mon 8AM
+            </div>
+          )}
           {/* Avatar + dropdown */}
           <div ref={menuRef} style={{ position: 'relative' }}>
             <button
@@ -1220,7 +1245,7 @@ export default function DashboardPage() {
       </nav>
 
       {/* ── Page header ────────────────────────────────── */}
-      <div style={{ padding: '20px 24px 0', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+      <div style={{ padding: isMobile ? '16px 12px 0' : '20px 24px 0', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'flex-start', justifyContent: 'space-between', gap: isMobile ? 8 : 12 }}>
         <div>
           {loading ? (
             <>
@@ -1252,7 +1277,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Tab content ────────────────────────────────── */}
-      <div key={tab} style={{ padding: '20px 24px 60px', animation: 'pageIn 0.35s cubic-bezier(0.22,1,0.36,1)' }}>
+      <div key={tab} style={{ padding: isMobile ? '16px 12px 60px' : '20px 24px 60px', animation: 'pageIn 0.35s cubic-bezier(0.22,1,0.36,1)' }}>
         {loading && <DashboardLoader />}
 
         {!loading && error && (

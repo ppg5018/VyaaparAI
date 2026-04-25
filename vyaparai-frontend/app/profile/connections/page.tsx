@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { useBusinessId } from '@/lib/business-context';
+import { useViewport } from '@/lib/use-viewport';
 import { generateReport, type HealthReport } from '@/lib/api';
 import { Logo, ThemeToggle } from '@/components/ui';
 
@@ -49,11 +50,15 @@ function StatusPill({ status }: { status: Status }) {
 // ─── Connection card ───────────────────────────────────────────────────────────
 function Card({ c }: { c: Connection }) {
   const enabled = c.status === 'connected' || c.status === 'manual';
+  const { isMobile } = useViewport();
   return (
     <div style={{
       background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 'var(--r2)', padding: '18px 20px',
-      display: 'flex', alignItems: 'center', gap: 16,
+      borderRadius: 'var(--r2)', padding: isMobile ? '14px 16px' : '18px 20px',
+      display: 'flex',
+      flexDirection: isMobile ? 'column' : 'row',
+      alignItems: isMobile ? 'stretch' : 'center',
+      gap: isMobile ? 12 : 16,
     }}>
       <div style={{
         width: 44, height: 44, flexShrink: 0,
@@ -119,6 +124,7 @@ export default function ConnectionsPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { businessId, bizLoading } = useBusinessId();
+  const { isMobile } = useViewport();
 
   const [report, setReport] = useState<HealthReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -267,7 +273,7 @@ export default function ConnectionsPage() {
       </nav>
 
       {/* Page */}
-      <div style={{ maxWidth: 760, margin: '0 auto', padding: '32px 24px 80px', display: 'flex', flexDirection: 'column', gap: 32 }}>
+      <div style={{ maxWidth: 760, margin: '0 auto', padding: isMobile ? '20px 12px 60px' : '32px 24px 80px', display: 'flex', flexDirection: 'column', gap: isMobile ? 24 : 32 }}>
 
         {/* Header */}
         <div>
