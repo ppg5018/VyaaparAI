@@ -56,7 +56,7 @@ export default function Logo({ size = 32 }: LogoProps) {
             lineHeight: 1,
           }}
         >
-          VyaparAI
+          VyaaparAI
         </span>
         <span
           style={{

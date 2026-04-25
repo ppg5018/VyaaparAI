@@ -17,7 +17,18 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
-      "mcp__plugin_context7_context7__query-docs"
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(git *)",
+      "Bash(npx tsc *)",
+      "mcp__claude_ai_Notion__notion-search",
+      "mcp__claude_ai_Notion__notion-create-pages",
+      "mcp__claude_ai_Notion__notion-fetch",
+      "mcp__claude_ai_Notion__notion-update-page",
+      "Bash(curl -s -o /tmp/r1.json -w \"First call \\(cold\\): HTTP %{http_code}, time %{time_total}s\\\\n\" -X POST http://localhost:8000/generate-report/ebbbca3c-88ea-46d1-9e03-5119912df3b0 --max-time 60)",
+      "Bash(curl -s -o /tmp/c1.json -w \"  HTTP %{http_code}, time %{time_total}s\\\\n\" -X POST \"http://localhost:8000/generate-report/ebbbca3c-88ea-46d1-9e03-5119912df3b0?force=true\" --max-time 60)",
+      "WebFetch(domain:apify.com)",
+      "Bash(:)",
+      "Bash(curl -s -o /tmp/r1.json -w \"HTTP %{http_code}, time %{time_total}s\\\\n\" -X POST \"http://localhost:8000/generate-report/ebbbca3c-88ea-46d1-9e03-5119912df3b0?force=true\" --max-time 180)"
     ]
   }
 }

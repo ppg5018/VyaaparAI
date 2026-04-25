@@ -8,6 +8,12 @@ ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 GOOGLE_PLACES_API_KEY: str = os.getenv("GOOGLE_PLACES_API_KEY", "")
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+APIFY_TOKEN: str = os.getenv("APIFY_TOKEN", "")
+
+# Apify
+APIFY_REVIEWS_ACTOR = "compass~google-maps-reviews-scraper"
+REVIEW_CACHE_TTL_DAYS_OWN = 7         # Re-sync user's own reviews weekly
+REVIEW_CACHE_TTL_DAYS_COMPETITOR = 30 # Re-sync competitor reviews monthly
 
 # Claude model
 CLAUDE_MODEL = "claude-sonnet-4-20250514"

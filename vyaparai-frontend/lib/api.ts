@@ -23,9 +23,18 @@ export interface Competitor {
   review_count: number;
 }
 
+export interface CompetitorAnalysis {
+  themes: string[];
+  opportunities: string[];
+  analyzed_count: number;
+}
+
 export interface HealthReport {
   business_id: string;
   business_name: string;
+  address: string;
+  category: string;
+  owner_name: string;
   final_score: number;
   band: Band;
   sub_scores: { review_score: number; competitor_score: number; pos_score: number };
@@ -35,6 +44,7 @@ export interface HealthReport {
   competitors: Competitor[];
   insights: [string, string, string];
   action: string;
+  competitor_analysis: CompetitorAnalysis;
   generated_at: string;
 }
 
@@ -82,8 +92,9 @@ export async function onboardBusiness(data: {
   return res.json();
 }
 
-export async function generateReport(businessId: string): Promise<HealthReport> {
-  const res = await fetch(`${BASE}/generate-report/${businessId}`, { method: 'POST' });
+export async function generateReport(businessId: string, force = false): Promise<HealthReport> {
+  const url = `${BASE}/generate-report/${businessId}${force ? '?force=true' : ''}`;
+  const res = await fetch(url, { method: 'POST' });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -106,4 +117,42 @@ export async function uploadPOS(
   const res = await fetch(`${BASE}/upload-pos/${businessId}`, { method: 'POST', body: form });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+
+// ─── Actions log ───────────────────────────────────────────────────────────────
+export type ActionKind = 'weekly_action_done' | 'insight_actioned' | 'insight_saved';
+
+export interface ActionEntry {
+  id: string;
+  business_id: string;
+  kind: ActionKind;
+  target_text: string;
+  note: string | null;
+  created_at: string;
+}
+
+export async function logAction(
+  businessId: string,
+  kind: ActionKind,
+  targetText: string,
+  note?: string,
+): Promise<ActionEntry> {
+  const res = await fetch(`${BASE}/actions/${businessId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind, target_text: targetText, note: note ?? null }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function getActions(businessId: string): Promise<{ business_id: string; count: number; actions: ActionEntry[] }> {
+  const res = await fetch(`${BASE}/actions/${businessId}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteAction(actionId: string): Promise<void> {
+  const res = await fetch(`${BASE}/actions/${actionId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(await res.text());
 }

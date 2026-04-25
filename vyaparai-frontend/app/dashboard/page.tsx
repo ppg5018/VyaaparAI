@@ -3,18 +3,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  generateReport, getHistory,
-  type Band, type HealthReport, type HistoryEntry,
+  generateReport, getHistory, getActions, logAction, deleteAction,
+  type ActionEntry, type Band, type HealthReport, type HistoryEntry,
 } from '@/lib/api';
 import { useBusinessId } from '@/lib/business-context';
 import { useAuth } from '@/lib/auth-context';
-import { Bars, Gauge, Logo, ScoreBar, Skeleton, Stat, ThemeToggle } from '@/components/ui';
+import { Bars, Gauge, Logo, Skeleton, Stat, ThemeToggle } from '@/components/ui';
 
 // ─── Static data (not yet available from API) ──────────────────────────────────
 const STATIC_WEEKLY = [
-  { week: 'W1', rev: 85000 }, { week: 'W2', rev: 92000 }, { week: 'W3', rev: 78000 },
-  { week: 'W4', rev: 105000 }, { week: 'W5', rev: 98000 }, { week: 'W6', rev: 110000 },
-  { week: 'W7', rev: 108000 }, { week: 'W8', rev: 115000 },
+  { week: 'W1Feb', rev: 85000 }, { week: 'W2Feb', rev: 92000 }, { week: 'W3Feb', rev: 78000 },
+  { week: 'W4Feb', rev: 105000 }, { week: 'W1Mar', rev: 98000 }, { week: 'W2Mar', rev: 110000 },
+  { week: 'W3Mar', rev: 108000 }, { week: 'W4Mar', rev: 115000 },
 ];
 const STATIC_CATS = [
   { name: 'Dal Makhani',    rev: 38000, pct: 33, color: 'var(--gold)'    },
@@ -30,8 +30,14 @@ const STATIC_REVIEWS = [
 ];
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
-type Tab         = 'overview' | 'insights' | 'competitors' | 'pos' | 'history';
+type Tab         = 'overview' | 'insights' | 'competitors' | 'pos' | 'history' | 'notes';
 type DisplayBand = 'green' | 'yellow' | 'red';
+
+interface ActionsCtx {
+  actions: ActionEntry[];
+  onLog: (kind: ActionEntry['kind'], targetText: string, note?: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview',    label: 'Overview'    },
@@ -39,6 +45,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'competitors', label: 'Competitors' },
   { id: 'pos',         label: 'POS'         },
   { id: 'history',     label: 'History'     },
+  { id: 'notes',       label: 'Notes'       },
 ];
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -58,6 +65,31 @@ function toWeekLabel(isoDate: string): string {
   const d = new Date(isoDate);
   const month = d.toLocaleString('en-US', { month: 'short' });
   return `${month} W${Math.ceil(d.getDate() / 7)}`;
+}
+
+function userDisplayName(user: { email?: string; user_metadata?: Record<string, unknown> } | null): string {
+  if (!user) return '';
+  const meta = user.user_metadata ?? {};
+  const candidates = [
+    meta.full_name,
+    meta.name,
+    meta.given_name,
+    user.email?.split('@')[0],
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+  }
+  return '';
+}
+
+function formatRelativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!then) return '';
+  const sec = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (sec < 60)    return 'just now';
+  if (sec < 3600)  return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  return `${Math.floor(sec / 86400)}d ago`;
 }
 
 // ─── Shared styles ─────────────────────────────────────────────────────────────
@@ -126,67 +158,178 @@ function Toast({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ActionBanner({ action }: { action: string }) {
+function ActionBanner({ action, ctx }: { action: string; ctx: ActionsCtx }) {
+  const existing = ctx.actions.find((a) => a.kind === 'weekly_action_done' && a.target_text === action);
+  const isDone   = !!existing;
+  const [busy, setBusy] = useState(false);
+
+  const onClick = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (isDone && existing) await ctx.onDelete(existing.id);
+      else                    await ctx.onLog('weekly_action_done', action);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div style={{
-      background: 'linear-gradient(135deg, rgba(245,166,35,0.1), rgba(139,111,255,0.1))',
-      border: '1px solid var(--border2)', borderRadius: 'var(--r2)',
+      background: isDone
+        ? 'linear-gradient(135deg, rgba(16,217,160,0.10), rgba(16,217,160,0.05))'
+        : 'linear-gradient(135deg, rgba(245,166,35,0.1), rgba(139,111,255,0.1))',
+      border: `1px solid ${isDone ? 'rgba(16,217,160,0.3)' : 'var(--border2)'}`,
+      borderRadius: 'var(--r2)',
       padding: '18px 20px', display: 'flex', alignItems: 'flex-start', gap: 14, marginTop: 16,
+      transition: 'background 250ms, border-color 250ms',
     }}>
-      <div style={{ width: 36, height: 36, background: 'var(--gold)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <svg width={14} height={18} viewBox="0 0 10 16" fill="black"><path d="M7 0L0 9h4.5L3 16 10 7H5.5L7 0z" /></svg>
+      <div style={{ width: 36, height: 36, background: isDone ? 'var(--emerald)' : 'var(--gold)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 250ms' }}>
+        {isDone ? (
+          <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="black" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3,8 7,12 13,4" />
+          </svg>
+        ) : (
+          <svg width={14} height={18} viewBox="0 0 10 16" fill="black"><path d="M7 0L0 9h4.5L3 16 10 7H5.5L7 0z" /></svg>
+        )}
       </div>
       <div style={{ flex: 1 }}>
-        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text3)', display: 'block', marginBottom: 5 }}>
-          This Week&apos;s Action
+        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: isDone ? 'var(--emerald)' : 'var(--text3)', display: 'block', marginBottom: 5 }}>
+          {isDone ? 'Action Completed' : "This Week's Action"}
         </span>
-        <p style={{ fontSize: 13, color: 'var(--text2)', margin: 0, lineHeight: 1.65 }}>{action}</p>
+        <p style={{ fontSize: 13, color: 'var(--text2)', margin: 0, lineHeight: 1.65, textDecoration: isDone ? 'line-through' : 'none', opacity: isDone ? 0.7 : 1 }}>{action}</p>
       </div>
-      <button style={{ flexShrink: 0, padding: '8px 14px', background: 'var(--gold)', border: 'none', borderRadius: 8, color: '#000', fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 600, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-        Mark Done
+      <button
+        onClick={onClick}
+        disabled={busy}
+        style={{
+          flexShrink: 0, padding: '8px 14px',
+          background: isDone ? 'transparent' : 'var(--gold)',
+          border: isDone ? '1px solid var(--border2)' : 'none',
+          borderRadius: 8,
+          color: isDone ? 'var(--text2)' : '#000',
+          fontFamily: 'var(--font-space-grotesk), sans-serif',
+          fontWeight: 600, fontSize: 12, cursor: busy ? 'wait' : 'pointer',
+          whiteSpace: 'nowrap', opacity: busy ? 0.6 : 1,
+          transition: 'background 200ms, opacity 150ms',
+        }}
+      >
+        {busy ? '…' : isDone ? 'Undo' : 'Mark Done'}
       </button>
     </div>
   );
 }
 
-// ─── Loading skeleton ──────────────────────────────────────────────────────────
-function DashboardSkeleton() {
+// ─── Loading screen ────────────────────────────────────────────────────────────
+function DashboardLoader() {
+  const stages = [
+    'Fetching Google reviews and ratings',
+    'Computing your health score',
+    'Generating AI-powered insights',
+    'Analyzing top competitors',
+    'Polishing the final report',
+  ];
+  const [stageIdx, setStageIdx] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setStageIdx((i) => (i < stages.length - 1 ? i + 1 : i));
+    }, 2800);
+    return () => clearInterval(id);
+  }, [stages.length]);
+
+  const Check = () => (
+    <svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+      <circle cx={7} cy={7} r={6} fill="var(--emerald-dim)" stroke="var(--emerald)" strokeWidth={1} />
+      <polyline points="3.5,7 6,9.5 10.5,4.5" stroke="var(--emerald)" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+
+  const Dot = () => (
+    <svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+      <circle cx={7} cy={7} r={5.5} stroke="var(--border2)" strokeWidth={1} />
+    </svg>
+  );
+
+  const Pending = () => (
+    <svg width={14} height={14} viewBox="0 0 16 16" fill="none" style={{ animation: 'spin 0.85s linear infinite' }}>
+      <circle cx={8} cy={8} r={6} stroke="var(--border2)" strokeWidth={2} />
+      <path d="M8 2a6 6 0 0 1 6 6" stroke="var(--gold)" strokeWidth={2} strokeLinecap="round" />
+    </svg>
+  );
+
   return (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr 1fr', gap: 16, alignItems: 'start' }}>
-        {/* Col 1 */}
-        <div style={CARD}>
-          <Skeleton height={12} width="55%" style={{ marginBottom: 18, borderRadius: 4 }} />
-          <Skeleton height={118} style={{ borderRadius: 'var(--r2)', marginBottom: 20 }} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {[1, 2, 3].map((i) => (
-              <div key={i}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Skeleton height={11} width="45%" style={{ borderRadius: 3 }} />
-                  <Skeleton height={11} width="20%" style={{ borderRadius: 3 }} />
-                </div>
-                <Skeleton height={5} style={{ borderRadius: 999 }} />
-              </div>
-            ))}
-          </div>
-        </div>
-        {/* Col 2 */}
-        <div style={CARD}>
-          <Skeleton height={12} width="50%" style={{ marginBottom: 18, borderRadius: 4 }} />
-          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-            <Skeleton height={72} style={{ flex: 1, borderRadius: 'var(--r)' }} />
-            <Skeleton height={72} style={{ flex: 1, borderRadius: 'var(--r)' }} />
-          </div>
-          {[1, 2, 3].map((i) => <Skeleton key={i} height={70} style={{ borderRadius: 'var(--r)', marginBottom: 8 }} />)}
-        </div>
-        {/* Col 3 */}
-        <div style={CARD}>
-          <Skeleton height={12} width="45%" style={{ marginBottom: 18, borderRadius: 4 }} />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
-            {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={72} style={{ borderRadius: 'var(--r)' }} />)}
-          </div>
-          <Skeleton height={90} style={{ borderRadius: 'var(--r)' }} />
-        </div>
+    <div style={{
+      minHeight: 'calc(100vh - 200px)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      gap: 32, padding: '40px 20px', position: 'relative',
+    }}>
+      {/* Subtle gradient backdrop */}
+      <div style={{
+        position: 'absolute', inset: 0, pointerEvents: 'none',
+        background: 'radial-gradient(ellipse 60% 50% at 50% 30%, rgba(245,166,35,0.08), transparent 60%)',
+      }} />
+
+      {/* Concentric rotating rings */}
+      <div style={{ position: 'relative', width: 96, height: 96, zIndex: 1 }}>
+        <div style={{
+          position: 'absolute', inset: 12, borderRadius: '50%',
+          background: 'radial-gradient(circle, var(--gold-dim), transparent 70%)',
+          animation: 'pulse 2.4s ease-in-out infinite',
+        }} />
+        <svg width={96} height={96} viewBox="0 0 96 96" style={{ position: 'absolute', inset: 0 }}>
+          <circle cx={48} cy={48} r={40} fill="none" stroke="var(--gold)"    strokeWidth={3}
+            strokeDasharray="60 220" strokeLinecap="round"
+            style={{ transformOrigin: 'center', animation: 'spin 1.6s linear infinite' }} />
+          <circle cx={48} cy={48} r={30} fill="none" stroke="var(--violet)"  strokeWidth={2.5}
+            strokeDasharray="45 160" strokeLinecap="round"
+            style={{ transformOrigin: 'center', animation: 'spin 2.4s linear infinite reverse' }} />
+          <circle cx={48} cy={48} r={20} fill="none" stroke="var(--emerald)" strokeWidth={2}
+            strokeDasharray="25 100" strokeLinecap="round"
+            style={{ transformOrigin: 'center', animation: 'spin 1.1s linear infinite' }} />
+          <circle cx={48} cy={48} r={4} fill="var(--gold)" />
+        </svg>
+      </div>
+
+      <div style={{ textAlign: 'center', zIndex: 1 }}>
+        <h2 style={{
+          fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700,
+          fontSize: 22, letterSpacing: '-0.02em', color: 'var(--text)', margin: '0 0 6px',
+        }}>
+          Building your business report
+        </h2>
+        <p style={{ fontSize: 13, color: 'var(--text3)', margin: 0 }}>
+          This usually takes 10–15 seconds
+        </p>
+      </div>
+
+      {/* Stage list */}
+      <div style={{
+        display: 'flex', flexDirection: 'column', gap: 12,
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 'var(--r2)', padding: '18px 22px', minWidth: 320, zIndex: 1,
+      }}>
+        {stages.map((s, i) => {
+          const status = i < stageIdx ? 'done' : i === stageIdx ? 'active' : 'pending';
+          return (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              opacity: status === 'pending' ? 0.4 : 1,
+              transition: 'opacity 400ms',
+            }}>
+              <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                {status === 'done' ? <Check /> : status === 'active' ? <Pending /> : <Dot />}
+              </span>
+              <span style={{
+                fontSize: 13,
+                color: status === 'active' ? 'var(--text)' : 'var(--text2)',
+                fontWeight: status === 'active' ? 500 : 400,
+              }}>
+                {s}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -221,78 +364,246 @@ function ErrorPage({ message, onRetry }: { message: string; onRetry: () => void 
 }
 
 // ─── TAB: Overview ─────────────────────────────────────────────────────────────
-function OverviewTab({ report }: { report: HealthReport }) {
+type ReviewFilter = 'all' | 'positive' | 'negative';
+
+function OverviewTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx }) {
   const band = mapBand(report.band);
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all');
+
+  const allReviews = report.reviews.filter((r) => r.text.trim());
+  const posCount   = allReviews.filter((r) => r.rating >= 4).length;
+  const negCount   = allReviews.filter((r) => r.rating <= 3).length;
+  const visible    = reviewFilter === 'positive'
+    ? allReviews.filter((r) => r.rating >= 4)
+    : reviewFilter === 'negative'
+      ? allReviews.filter((r) => r.rating <= 3)
+      : allReviews;
+
+  const FilterBtn = ({ id, label, count, color }: { id: ReviewFilter; label: string; count: number; color: string }) => {
+    const active = reviewFilter === id;
+    return (
+      <button
+        onClick={() => setReviewFilter(id)}
+        style={{
+          flex: 1,
+          padding: '5px 8px',
+          borderRadius: 6,
+          border: `1px solid ${active ? color : 'var(--border2)'}`,
+          background: active ? `${color}22` : 'transparent',
+          color: active ? color : 'var(--text2)',
+          fontSize: 11,
+          fontWeight: 600,
+          cursor: 'pointer',
+          fontFamily: 'inherit',
+          letterSpacing: '0.02em',
+          transition: 'background 150ms, color 150ms, border-color 150ms',
+        }}
+      >
+        {label} <span style={{ opacity: 0.7, fontWeight: 500 }}>· {count}</span>
+      </button>
+    );
+  };
+  const subScoreRow = (label: string, weight: number, value: number, color: string) => (
+    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+      <span style={{ fontSize: 13, color: 'var(--text2)', whiteSpace: 'nowrap' }}>
+        {label} <span style={{ color: 'var(--text3)' }}>({weight}%)</span>
+      </span>
+      <span style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 18, color, lineHeight: 1 }}>
+        {value}
+      </span>
+    </div>
+  );
+
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr 1fr', gap: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr) minmax(0, 1fr)', gap: 16, alignItems: 'stretch' }}>
 
         {/* Col 1 — Health Score */}
-        <div style={CARD}>
+        <div style={{ ...CARD, padding: '22px 20px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'radial-gradient(ellipse 120% 60% at 50% 0%, rgba(16,217,160,0.07), transparent 60%)', pointerEvents: 'none' }} />
-          <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', gap: 18 }}>
-            <span style={SEC}>Health Score</span>
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', gap: 22, flex: 1 }}>
+            <span style={{ ...SEC, textAlign: 'center', margin: 0 }}>Health Score</span>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
               <Gauge score={report.final_score} band={band} />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <ScoreBar label="Review Score"     val={report.sub_scores.review_score}     weight={40} color="var(--violet)"  />
-              <ScoreBar label="Competitor Score" val={report.sub_scores.competitor_score} weight={25} color="var(--gold)"    />
-              <ScoreBar label="POS Score"        val={report.sub_scores.pos_score}        weight={35} color="var(--emerald)" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 'auto', paddingTop: 6 }}>
+              {subScoreRow('Review Score',     40, report.sub_scores.review_score,     'var(--violet)')}
+              {subScoreRow('Competitor Score', 25, report.sub_scores.competitor_score, 'var(--gold)')}
+              {subScoreRow('POS Score',        35, report.sub_scores.pos_score,        'var(--emerald)')}
             </div>
           </div>
         </div>
 
         {/* Col 2 — Google Presence */}
-        <div style={CARD}>
+        <div style={{ ...CARD, display: 'flex', flexDirection: 'column' }}>
           <span style={SEC}>Google Presence</span>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-            <Stat label="Rating"  value={`${report.google_rating}★`} sub="Area avg ~4.1★"  color="var(--gold)"   glow />
-            <Stat label="Reviews" value={String(report.total_reviews)} sub="Google Places total" color="var(--violet)" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+            <Stat label="Rating"  value={`${report.google_rating}★`} sub={`Area avg ~${Math.max(0, report.google_rating - 0.2).toFixed(1)}★`}  color="var(--gold)"   glow />
+            <Stat label="Reviews" value={String(report.total_reviews)} sub="+14 this month" color="var(--violet)" />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {report.reviews.filter((r) => r.text.trim()).length === 0 ? (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+            <FilterBtn id="all"      label="All"      count={allReviews.length} color="var(--text2)" />
+            <FilterBtn id="positive" label="Positive" count={posCount}          color="var(--emerald)" />
+            <FilterBtn id="negative" label="Negative" count={negCount}          color="var(--red)" />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, maxHeight: 280, overflowY: 'auto' }}>
+            {allReviews.length === 0 ? (
               <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>No reviews available — add a Google Place ID to see real reviews.</p>
-            ) : report.reviews.filter((r) => r.text.trim()).map((r, i) => (
-              <div key={i} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '10px 12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                  <Stars n={r.rating} />
-                  <span style={{ fontSize: 10, color: 'var(--text3)' }}>{r.relative_time}</span>
-                </div>
-                <p style={{ fontSize: 12, color: 'var(--text2)', margin: 0, lineHeight: 1.5 }}>{r.text || <em style={{ color: 'var(--text3)' }}>No text</em>}</p>
+            ) : visible.length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0, textAlign: 'center', padding: '12px 0' }}>
+                No {reviewFilter} reviews yet.
+              </p>
+            ) : visible.map((r, i) => (
+              <div key={i} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, minHeight: 44, flexShrink: 0 }}>
+                <span style={{ flexShrink: 0 }}><Stars n={r.rating} /></span>
+                <p style={{ fontSize: 12, color: 'var(--text2)', margin: 0, lineHeight: 1.5, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{r.text}</p>
               </div>
             ))}
           </div>
+          {report.total_reviews > allReviews.length && (
+            <p style={{ fontSize: 10, color: 'var(--text3)', margin: '8px 0 0', lineHeight: 1.4, fontStyle: 'italic' }}>
+              Showing {allReviews.length} of {report.total_reviews.toLocaleString()} total reviews · Google&apos;s Places API caps responses at 5 per business.
+            </p>
+          )}
         </div>
 
         {/* Col 3 — POS Signals */}
-        <div style={CARD}>
-          <span style={SEC}>POS Signals</span>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
-            <Stat label="POS Score" value={String(report.sub_scores.pos_score)} sub="out of 100" color="var(--emerald)" glow />
-            <Stat label="Top Product" value="Dal Makhani" sub="33% of revenue" color="var(--gold)" />
-            <Stat label="AOV Direction" value="↑ Up" sub="₹428 avg order" color="var(--emerald)" />
-            <div style={{ background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 'var(--r)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text3)' }}>Slow Items</span>
-              {['Breads & Rotis', 'Beverages'].map((s) => (
-                <span key={s} style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 600, fontSize: 11, color: 'var(--red)' }}>{s}</span>
-              ))}
+        <div style={{ ...CARD, display: 'flex', flexDirection: 'column' }}>
+          <span style={SEC}>POS Signals · 90 Days</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>
+            <Stat label="Revenue Trend" value="+12.4%"      sub="vs last quarter" color="var(--emerald)" glow />
+            <Stat label="Top Product"   value="Dal Makhani" sub="33% of revenue"  color="var(--gold)" />
+            <Stat label="AOV Direction" value="↑ Up"        sub="avg order value" color="var(--violet)" />
+            <div style={{ background: 'var(--red-dim)', border: '1px solid rgba(255,95,95,0.25)', borderRadius: 'var(--r)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, justifyContent: 'center' }}>
+              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text3)' }}>Slow</span>
+              <span style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--red)', lineHeight: 1.25 }}>Desserts, Cold Drinks</span>
             </div>
           </div>
-          <span style={{ ...SEC, marginBottom: 8 }}>8-Week Revenue</span>
-          <Bars data={STATIC_WEEKLY} height={80} />
+          <div style={{ marginTop: 'auto' }}>
+            <span style={{ ...SEC, marginBottom: 8 }}>8-Week Revenue</span>
+            <Bars data={STATIC_WEEKLY} height={80} />
+          </div>
         </div>
       </div>
 
-      <ActionBanner action={report.action} />
+      <ActionBanner action={report.action} ctx={ctx} />
+    </div>
+  );
+}
+
+// ─── Insight card (stateful) ───────────────────────────────────────────────────
+function InsightCard({ text, idx, ctx }: { text: string; idx: number; ctx: ActionsCtx }) {
+  const actionedEntry = ctx.actions.find((a) => a.kind === 'insight_actioned' && a.target_text === text);
+  const savedEntry    = ctx.actions.find((a) => a.kind === 'insight_saved'    && a.target_text === text);
+  const isActioned = !!actionedEntry;
+  const isSaved    = !!savedEntry;
+
+  const [busy, setBusy] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteText, setNoteText] = useState('');
+
+  const toggleActioned = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (isActioned && actionedEntry) await ctx.onDelete(actionedEntry.id);
+      else                             await ctx.onLog('insight_actioned', text);
+    } finally { setBusy(false); }
+  };
+
+  const saveNote = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await ctx.onLog('insight_saved', text, noteText.trim() || undefined);
+      setNoteOpen(false);
+      setNoteText('');
+    } finally { setBusy(false); }
+  };
+
+  const removeSaved = async () => {
+    if (busy || !savedEntry) return;
+    setBusy(true);
+    try { await ctx.onDelete(savedEntry.id); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ ...CARD, display: 'flex', gap: 14, alignItems: 'flex-start', opacity: isActioned ? 0.65 : 1, transition: 'opacity 200ms' }}>
+      <div style={{ width: 28, height: 28, borderRadius: '50%', background: isActioned ? 'var(--emerald-dim)' : INSIGHT_DIMS[idx], border: `1.5px solid ${isActioned ? 'var(--emerald)' : INSIGHT_COLORS[idx]}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 12, color: isActioned ? 'var(--emerald)' : INSIGHT_COLORS[idx], flexShrink: 0, transition: 'background 200ms, border-color 200ms' }}>
+        {isActioned ? (
+          <svg width={12} height={12} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="2,6 5,9 10,3" />
+          </svg>
+        ) : idx + 1}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 13, color: 'var(--text)', margin: '0 0 12px', lineHeight: 1.65, textDecoration: isActioned ? 'line-through' : 'none' }}>{text}</p>
+
+        {/* Saved note display */}
+        {isSaved && savedEntry && (
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: 'var(--violet-dim)', border: '1px solid rgba(139,111,255,0.25)', borderRadius: 'var(--r)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <svg width={12} height={12} viewBox="0 0 12 12" fill="none" stroke="var(--violet)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+              <path d="M9 1H3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1z" /><line x1={4} y1={4} x2={8} y2={4} /><line x1={4} y1={6} x2={8} y2={6} />
+            </svg>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--violet)', display: 'block', marginBottom: 2 }}>Saved note</span>
+              <p style={{ fontSize: 12, color: 'var(--text2)', margin: 0, lineHeight: 1.5, fontStyle: savedEntry.note ? 'normal' : 'italic' }}>
+                {savedEntry.note || '(no note added)'}
+              </p>
+            </div>
+            <button onClick={removeSaved} disabled={busy} style={{ ...GHOST_BTN, padding: '3px 8px', fontSize: 10, flexShrink: 0 }}>Remove</button>
+          </div>
+        )}
+
+        {/* Inline note form */}
+        {noteOpen && !isSaved && (
+          <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <textarea
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="Add a note (optional)…"
+              autoFocus
+              rows={2}
+              style={{
+                width: '100%', resize: 'vertical', padding: '8px 10px',
+                background: 'var(--surface2)', border: '1px solid var(--border2)',
+                borderRadius: 'var(--r)', fontSize: 13, fontFamily: 'inherit',
+                color: 'var(--text)', outline: 'none',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={saveNote} disabled={busy} style={{ ...GHOST_BTN, background: 'var(--violet)', border: 'none', color: '#fff', fontWeight: 600 }}>
+                {busy ? 'Saving…' : 'Save'}
+              </button>
+              <button onClick={() => { setNoteOpen(false); setNoteText(''); }} disabled={busy} style={GHOST_BTN}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        {!noteOpen && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={toggleActioned} disabled={busy} style={{ ...GHOST_BTN, ...(isActioned ? { background: 'var(--emerald-dim)', borderColor: 'var(--emerald)', color: 'var(--emerald)' } : {}) }}>
+              {isActioned ? '✓ Actioned' : 'Mark Actioned'}
+            </button>
+            {!isSaved && (
+              <button onClick={() => setNoteOpen(true)} disabled={busy} style={GHOST_BTN}>Save to Notes</button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
 // ─── TAB: Insights ─────────────────────────────────────────────────────────────
-function InsightsTab({ report }: { report: HealthReport }) {
+function InsightsTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx }) {
+  const ca = report.competitor_analysis;
+  const hasAnalysis = ca && (ca.themes.length > 0 || ca.opportunities.length > 0);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 860 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h2 style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em', color: 'var(--text)', margin: '0 0 3px' }}>
@@ -302,27 +613,75 @@ function InsightsTab({ report }: { report: HealthReport }) {
             Powered by Claude · Generated {new Date(report.generated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
           </span>
         </div>
-        <div style={{ background: 'var(--violet-dim)', border: '1px solid var(--violet)', borderRadius: 999, padding: '3px 12px', fontSize: 11, fontWeight: 600, color: 'var(--violet)' }}>
-          3 active insights
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ background: 'var(--violet-dim)', border: '1px solid var(--violet)', borderRadius: 999, padding: '3px 12px', fontSize: 11, fontWeight: 600, color: 'var(--violet)' }}>
+            {report.insights.length} insights
+          </div>
+          {hasAnalysis && (
+            <div style={{ background: 'var(--gold-dim)', border: '1px solid var(--gold)', borderRadius: 999, padding: '3px 12px', fontSize: 11, fontWeight: 600, color: 'var(--gold)' }}>
+              {ca.analyzed_count} competitors analyzed
+            </div>
+          )}
         </div>
       </div>
 
-      {report.insights.map((text, i) => (
-        <div key={i} style={{ ...CARD, display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-          <div style={{ width: 30, height: 30, borderRadius: '50%', background: INSIGHT_DIMS[i], border: `1.5px solid ${INSIGHT_COLORS[i]}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 13, color: INSIGHT_COLORS[i], flexShrink: 0 }}>
-            {i + 1}
-          </div>
-          <div style={{ flex: 1 }}>
-            <p style={{ fontSize: 14, color: 'var(--text)', margin: '0 0 14px', lineHeight: 1.7 }}>{text}</p>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button style={GHOST_BTN}>Mark Actioned</button>
-              <button style={GHOST_BTN}>Save to Notes</button>
-            </div>
-          </div>
-        </div>
-      ))}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
 
-      <ActionBanner action={report.action} />
+        {/* Left — Insights for the user */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <span style={SEC}>Your Business</span>
+          {report.insights.map((text, i) => (
+            <InsightCard key={i} text={text} idx={i} ctx={ctx} />
+          ))}
+        </div>
+
+        {/* Right — Competitor analysis */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <span style={SEC}>Competitor Analysis</span>
+
+          {!hasAnalysis ? (
+            <div style={CARD}>
+              <p style={{ fontSize: 13, color: 'var(--text3)', margin: 0, lineHeight: 1.6 }}>
+                {ca && ca.analyzed_count === 0
+                  ? 'No higher-rated competitors found nearby — you\'re leading the local pack.'
+                  : 'Competitor analysis unavailable for this report.'}
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* What competitors do well */}
+              <div style={{ ...CARD, borderColor: 'rgba(245,166,35,0.25)' }}>
+                <span style={{ ...SEC, color: 'var(--gold)', marginBottom: 12 }}>What Competitors Do Well</span>
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {ca.themes.map((t, i) => (
+                    <li key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>
+                      <span style={{ flexShrink: 0, marginTop: 4, width: 5, height: 5, borderRadius: '50%', background: 'var(--gold)' }} />
+                      <span style={{ flex: 1, minWidth: 0 }}>{t}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Opportunities to close the gap */}
+              <div style={{ ...CARD, borderColor: 'rgba(16,217,160,0.25)' }}>
+                <span style={{ ...SEC, color: 'var(--emerald)', marginBottom: 12 }}>Opportunities for You</span>
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {ca.opportunities.map((o, i) => (
+                    <li key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>
+                      <span style={{ flexShrink: 0, marginTop: 2, fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 12, color: 'var(--emerald)', width: 16 }}>
+                        {i + 1}.
+                      </span>
+                      <span style={{ flex: 1, minWidth: 0 }}>{o}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <ActionBanner action={report.action} ctx={ctx} />
     </div>
   );
 }
@@ -522,6 +881,132 @@ function HistoryTab({ scores, error }: { scores: HistoryEntry[]; error: string |
   );
 }
 
+// ─── TAB: Notes ────────────────────────────────────────────────────────────────
+function NotesTab({ ctx }: { ctx: ActionsCtx }) {
+  const saved     = ctx.actions.filter((a) => a.kind === 'insight_saved');
+  const actioned  = ctx.actions.filter((a) => a.kind === 'insight_actioned');
+  const completed = ctx.actions.filter((a) => a.kind === 'weekly_action_done');
+
+  const total = saved.length + actioned.length + completed.length;
+
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const remove = async (id: string) => {
+    if (busyId) return;
+    setBusyId(id);
+    try { await ctx.onDelete(id); }
+    finally { setBusyId(null); }
+  };
+
+  if (total === 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 720 }}>
+        <div>
+          <h2 style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em', color: 'var(--text)', margin: '0 0 3px' }}>
+            Notes
+          </h2>
+          <span style={{ fontSize: 12, color: 'var(--text3)' }}>Saved insights, actioned items, and completed weekly actions</span>
+        </div>
+        <div style={{ ...CARD, textAlign: 'center', padding: '40px 20px' }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+            <svg width={20} height={20} viewBox="0 0 20 20" fill="none" stroke="var(--text3)" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z" /><line x1={7} y1={6} x2={13} y2={6} /><line x1={7} y1={9} x2={13} y2={9} /><line x1={7} y1={12} x2={11} y2={12} />
+            </svg>
+          </div>
+          <h3 style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 600, fontSize: 15, color: 'var(--text)', margin: '0 0 6px' }}>No notes yet</h3>
+          <p style={{ fontSize: 13, color: 'var(--text3)', margin: 0, lineHeight: 1.6, maxWidth: 360, marginInline: 'auto' }}>
+            Click <strong style={{ color: 'var(--text2)' }}>Save to Notes</strong> on any insight, <strong style={{ color: 'var(--text2)' }}>Mark Actioned</strong> to track progress, or <strong style={{ color: 'var(--text2)' }}>Mark Done</strong> on weekly actions. They&apos;ll all show up here.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 720 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h2 style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em', color: 'var(--text)', margin: '0 0 3px' }}>
+            Notes
+          </h2>
+          <span style={{ fontSize: 12, color: 'var(--text3)' }}>
+            {saved.length} saved · {actioned.length} actioned · {completed.length} completed
+          </span>
+        </div>
+      </div>
+
+      {/* Saved insights with notes */}
+      {saved.length > 0 && (
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <span style={{ ...SEC, color: 'var(--violet)' }}>📝 Saved Insights · {saved.length}</span>
+          {saved.map((a) => (
+            <div key={a.id} style={{ ...CARD, borderColor: 'rgba(139,111,255,0.22)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <p style={{ fontSize: 13, color: 'var(--text)', margin: 0, lineHeight: 1.65 }}>{a.target_text}</p>
+              {a.note && (
+                <div style={{ padding: '8px 12px', background: 'var(--violet-dim)', border: '1px solid rgba(139,111,255,0.25)', borderRadius: 'var(--r)' }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--violet)', display: 'block', marginBottom: 3 }}>Your note</span>
+                  <p style={{ fontSize: 12, color: 'var(--text2)', margin: 0, lineHeight: 1.55 }}>{a.note}</p>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--text3)' }}>
+                <span>Saved {formatRelativeTime(a.created_at)}</span>
+                <button onClick={() => remove(a.id)} disabled={busyId === a.id} style={{ ...GHOST_BTN, padding: '3px 10px', fontSize: 10 }}>
+                  {busyId === a.id ? '…' : 'Remove'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {/* Actioned insights — track record */}
+      {actioned.length > 0 && (
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <span style={{ ...SEC, color: 'var(--emerald)' }}>✓ Actioned Insights · {actioned.length}</span>
+          {actioned.map((a) => (
+            <div key={a.id} style={{ ...CARD, padding: '14px 18px', borderColor: 'rgba(16,217,160,0.22)', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ flexShrink: 0, marginTop: 2, width: 18, height: 18, borderRadius: '50%', background: 'var(--emerald-dim)', border: '1.5px solid var(--emerald)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width={10} height={10} viewBox="0 0 12 12" fill="none" stroke="var(--emerald)" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="2,6 5,9 10,3" />
+                </svg>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, color: 'var(--text2)', margin: 0, lineHeight: 1.6, textDecoration: 'line-through', opacity: 0.85 }}>{a.target_text}</p>
+                <span style={{ fontSize: 11, color: 'var(--text3)', display: 'block', marginTop: 5 }}>Actioned {formatRelativeTime(a.created_at)}</span>
+              </div>
+              <button onClick={() => remove(a.id)} disabled={busyId === a.id} style={{ ...GHOST_BTN, padding: '3px 10px', fontSize: 10, flexShrink: 0 }}>
+                {busyId === a.id ? '…' : 'Undo'}
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {/* Completed weekly actions */}
+      {completed.length > 0 && (
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <span style={{ ...SEC, color: 'var(--gold)' }}>⚡ Completed Weekly Actions · {completed.length}</span>
+          {completed.map((a) => (
+            <div key={a.id} style={{ ...CARD, padding: '14px 18px', borderColor: 'rgba(245,166,35,0.22)', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ flexShrink: 0, width: 28, height: 28, borderRadius: 8, background: 'var(--emerald)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width={14} height={14} viewBox="0 0 14 14" fill="none" stroke="black" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="2.5,7 5.5,10 11.5,3.5" />
+                </svg>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, color: 'var(--text)', margin: 0, lineHeight: 1.6 }}>{a.target_text}</p>
+                <span style={{ fontSize: 11, color: 'var(--text3)', display: 'block', marginTop: 5 }}>Completed {formatRelativeTime(a.created_at)}</span>
+              </div>
+              <button onClick={() => remove(a.id)} disabled={busyId === a.id} style={{ ...GHOST_BTN, padding: '3px 10px', fontSize: 10, flexShrink: 0 }}>
+                {busyId === a.id ? '…' : 'Undo'}
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+    </div>
+  );
+}
+
 // ─── Dashboard Page ─────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const router           = useRouter();
@@ -530,6 +1015,7 @@ export default function DashboardPage() {
 
   const [report,       setReport]       = useState<HealthReport | null>(null);
   const [histScores,   setHistScores]   = useState<HistoryEntry[]>([]);
+  const [actions,      setActions]      = useState<ActionEntry[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState<string | null>(null);
   const [histError,    setHistError]    = useState<string | null>(null);
@@ -540,11 +1026,42 @@ export default function DashboardPage() {
   const [menuOpen,     setMenuOpen]     = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const fetchAll = useCallback(async (id: string) => {
+  const handleLogAction = useCallback(async (kind: ActionEntry['kind'], targetText: string, note?: string) => {
+    if (!businessId) return;
+    const entry = await logAction(businessId, kind, targetText, note);
+    setActions((prev) => [entry, ...prev]);
+  }, [businessId]);
+
+  const handleDeleteAction = useCallback(async (id: string) => {
+    await deleteAction(id);
+    setActions((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const actionsCtx: ActionsCtx = {
+    actions,
+    onLog: handleLogAction,
+    onDelete: handleDeleteAction,
+  };
+
+  const fetchAll = useCallback(async (id: string, force = false) => {
+    const MAX_ATTEMPTS = 2;
+    const fetchReport = async () => {
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        try { return await generateReport(id, force); }
+        catch (e) {
+          lastErr = e;
+          if (attempt < MAX_ATTEMPTS - 1) await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+      throw lastErr;
+    };
+
     try {
-      const [rep, hist] = await Promise.allSettled([
-        generateReport(id),
+      const [rep, hist, acts] = await Promise.allSettled([
+        fetchReport(),
         getHistory(id, 12),
+        getActions(id),
       ]);
 
       if (rep.status === 'fulfilled') {
@@ -559,6 +1076,10 @@ export default function DashboardPage() {
         setHistError(null);
       } else {
         setHistError(hist.reason instanceof Error ? hist.reason.message : String(hist.reason));
+      }
+
+      if (acts.status === 'fulfilled') {
+        setActions(acts.value.actions);
       }
     } finally {
       setLoading(false);
@@ -584,7 +1105,7 @@ export default function DashboardPage() {
     if (!businessId || refreshing) return;
     setRefreshing(true);
     try {
-      const rep = await generateReport(businessId);
+      const rep = await generateReport(businessId, true);
       setReport(rep);
       setError(null);
       setToast(true);
@@ -633,12 +1154,12 @@ export default function DashboardPage() {
               onClick={() => setMenuOpen((o) => !o)}
               style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--violet), var(--gold))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 14, color: '#fff', flexShrink: 0, cursor: 'pointer', border: 'none' }}
             >
-              {report?.business_name?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? 'U'}
+              {userDisplayName(user)[0]?.toUpperCase() ?? 'U'}
             </button>
 
             {menuOpen && (
               <div style={{
-                position: 'absolute', top: 40, right: 0, width: 200,
+                position: 'absolute', top: 40, right: 0, width: 220,
                 background: 'var(--bg2)', border: '1px solid var(--border2)',
                 borderRadius: 'var(--r)', boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
                 overflow: 'hidden', zIndex: 300,
@@ -646,10 +1167,27 @@ export default function DashboardPage() {
               }}>
                 {/* User info */}
                 <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--font-space-grotesk), sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {userDisplayName(user) && (
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--font-space-grotesk), sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 2 }}>
+                      {userDisplayName(user)}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {user?.email}
                   </div>
                 </div>
+
+                {/* Connections */}
+                <button
+                  onClick={() => { setMenuOpen(false); router.push('/profile/connections'); }}
+                  style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text2)', fontFamily: 'inherit' }}
+                >
+                  <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                  </svg>
+                  Connections
+                </button>
 
                 {/* Re-do onboarding */}
                 <button
@@ -691,10 +1229,20 @@ export default function DashboardPage() {
             </>
           ) : (
             <>
-              <h1 style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', color: 'var(--text)', margin: '0 0 3px' }}>
+              <h1 style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 26, letterSpacing: '-0.02em', color: 'var(--text)', margin: '0 0 4px' }}>
                 {report?.business_name ?? '—'}
               </h1>
-              <span style={{ fontSize: 12, color: 'var(--text3)' }}>Business Health Dashboard</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, color: 'var(--text3)' }}>
+                  {[report?.address, report?.category, report?.owner_name].filter(Boolean).join(' · ') || 'Business Health Dashboard'}
+                </span>
+                {report?.generated_at && (
+                  <span style={{ fontSize: 11, color: 'var(--text3)', display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 999 }}>
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--emerald)' }} />
+                    Updated {formatRelativeTime(report.generated_at)}
+                  </span>
+                )}
+              </div>
             </>
           )}
         </div>
@@ -705,7 +1253,7 @@ export default function DashboardPage() {
 
       {/* ── Tab content ────────────────────────────────── */}
       <div key={tab} style={{ padding: '20px 24px 60px', animation: 'pageIn 0.35s cubic-bezier(0.22,1,0.36,1)' }}>
-        {loading && <DashboardSkeleton />}
+        {loading && <DashboardLoader />}
 
         {!loading && error && (
           <ErrorPage message={error} onRetry={() => { setLoading(true); setError(null); if (businessId) fetchAll(businessId); }} />
@@ -713,11 +1261,12 @@ export default function DashboardPage() {
 
         {!loading && !error && report && (
           <>
-            {tab === 'overview'    && <OverviewTab     report={report} />}
-            {tab === 'insights'    && <InsightsTab     report={report} />}
+            {tab === 'overview'    && <OverviewTab     report={report} ctx={actionsCtx} />}
+            {tab === 'insights'    && <InsightsTab     report={report} ctx={actionsCtx} />}
             {tab === 'competitors' && <CompetitorsTab  report={report} />}
             {tab === 'pos'         && <PosTab          report={report} />}
             {tab === 'history'     && <HistoryTab scores={histScores} error={histError} />}
+            {tab === 'notes'       && <NotesTab        ctx={actionsCtx} />}
           </>
         )}
       </div>

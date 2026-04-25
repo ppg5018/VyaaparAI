@@ -113,7 +113,7 @@ def get_business_details(place_id: str) -> dict:
         "lng": float(geo.get("lng", 0.0)),
         "address": result.get("formatted_address", ""),
         "business_status": business_status,
-        "raw_reviews": result.get("reviews", [])[:5],
+        "raw_reviews": result.get("reviews", []),
     }
 
 

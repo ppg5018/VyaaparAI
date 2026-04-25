@@ -68,11 +68,22 @@ class Competitor(BaseModel):
     review_count: int
 
 
+class CompetitorAnalysis(BaseModel):
+    """AI-generated comparison of competitor reviews vs. ours."""
+
+    themes: list[str] = []
+    opportunities: list[str] = []
+    analyzed_count: int = 0
+
+
 class ReportResponse(BaseModel):
     """Response body for POST /generate-report/{business_id}."""
 
     business_id: str
     business_name: str
+    address: str = ""
+    category: str = ""
+    owner_name: str = ""
     final_score: int
     band: str
     sub_scores: SubScores
@@ -82,6 +93,7 @@ class ReportResponse(BaseModel):
     competitors: list[Competitor]
     insights: list[str]
     action: str
+    competitor_analysis: CompetitorAnalysis = CompetitorAnalysis()
     generated_at: str
 
 

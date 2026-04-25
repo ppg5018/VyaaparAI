@@ -15,6 +15,9 @@ interface AuthCtx {
     phone: string,
   ) => Promise<{ error: string | null; needsConfirmation: boolean }>;
   signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<{ error: string | null }>;
+  updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
+  signInWithGoogle: () => Promise<{ error: string | null }>;
 }
 
 const Ctx = createContext<AuthCtx>({} as AuthCtx);
@@ -65,8 +68,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
   };
 
+  const resetPassword = async (email: string): Promise<{ error: string | null }> => {
+    const redirectTo = typeof window !== 'undefined'
+      ? `${window.location.origin}/reset-password`
+      : undefined;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    return { error: error ? error.message : null };
+  };
+
+  const updatePassword = async (newPassword: string): Promise<{ error: string | null }> => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    return { error: error ? error.message : null };
+  };
+
+  const signInWithGoogle = async (): Promise<{ error: string | null }> => {
+    const redirectTo = typeof window !== 'undefined'
+      ? `${window.location.origin}/auth/callback`
+      : undefined;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo,
+        queryParams: { prompt: 'select_account' },
+      },
+    });
+    return { error: error ? error.message : null };
+  };
+
   return (
-    <Ctx.Provider value={{ user, loading, signIn, signUp, signOut }}>
+    <Ctx.Provider value={{ user, loading, signIn, signUp, signOut, resetPassword, updatePassword, signInWithGoogle }}>
       {children}
     </Ctx.Provider>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Aurora, Field, Logo, Steps, ThemeToggle } from '@/components/ui';
 import { onboardBusiness, searchPlaces, uploadPOS, type PlaceSuggestion } from '@/lib/api';
 import { useBusinessId } from '@/lib/business-context';
@@ -206,6 +206,8 @@ function BusinessNameInput({
 
 export default function BusinessPage() {
   const router             = useRouter();
+  const searchParams       = useSearchParams();
+  const cameFromConnections = searchParams.get('from') === 'connections';
   const { setBusinessId }  = useBusinessId();
 
   const [businessName, setBusinessName] = useState('');
@@ -254,7 +256,7 @@ export default function BusinessPage() {
         try { await uploadPOS(result.business_id, pendingFile); } catch { /* non-fatal */ }
       }
 
-      router.push('/dashboard');
+      router.push(cameFromConnections ? '/profile/connections' : '/dashboard');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Setup failed. Please try again.';
       setError(msg);
@@ -273,7 +275,27 @@ export default function BusinessPage() {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px',
       }}>
         <Logo size={26} />
-        <ThemeToggle />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {cameFromConnections && (
+            <button
+              type="button"
+              onClick={() => router.push('/profile/connections')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', borderRadius: 8,
+                background: 'transparent', border: '1px solid var(--border)',
+                color: 'var(--text2)', fontSize: 13, fontFamily: 'inherit',
+                cursor: 'pointer',
+              }}
+            >
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                <line x1={19} y1={12} x2={5} y2={12} /><polyline points="12 19 5 12 12 5" />
+              </svg>
+              Back to Connections
+            </button>
+          )}
+          <ThemeToggle />
+        </div>
       </nav>
 
       <main style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '40px 24px 60px', position: 'relative', zIndex: 1 }}>
@@ -282,7 +304,28 @@ export default function BusinessPage() {
           display: 'flex', flexDirection: 'column', gap: 32,
           animation: 'pageIn 0.45s cubic-bezier(0.22,1,0.36,1) both',
         }}>
-          <Steps active={2} />
+          {cameFromConnections ? (
+            <button
+              type="button"
+              onClick={() => router.push('/profile/connections')}
+              style={{
+                alignSelf: 'flex-start',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', marginBottom: -8,
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 8,
+                color: 'var(--text2)', fontSize: 12, fontFamily: 'inherit',
+                cursor: 'pointer',
+              }}
+            >
+              <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                <line x1={19} y1={12} x2={5} y2={12} /><polyline points="12 19 5 12 12 5" />
+              </svg>
+              Cancel & return to Connections
+            </button>
+          ) : (
+            <Steps active={2} />
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <h1 style={{
@@ -290,7 +333,7 @@ export default function BusinessPage() {
               fontWeight: 700, fontSize: 26, letterSpacing: '-0.03em',
               color: 'var(--text)', margin: 0,
             }}>
-              Tell us about your business
+              {cameFromConnections ? 'Update your business details' : 'Tell us about your business'}
             </h1>
             <p style={{ fontSize: 14, color: 'var(--text2)', margin: 0 }}>
               We&apos;ll use this to pull your Google Reviews and find competitors nearby.
