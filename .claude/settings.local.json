@@ -28,7 +28,9 @@
       "Bash(curl -s -o /tmp/c1.json -w \"  HTTP %{http_code}, time %{time_total}s\\\\n\" -X POST \"http://localhost:8000/generate-report/ebbbca3c-88ea-46d1-9e03-5119912df3b0?force=true\" --max-time 60)",
       "WebFetch(domain:apify.com)",
       "Bash(:)",
-      "Bash(curl -s -o /tmp/r1.json -w \"HTTP %{http_code}, time %{time_total}s\\\\n\" -X POST \"http://localhost:8000/generate-report/ebbbca3c-88ea-46d1-9e03-5119912df3b0?force=true\" --max-time 180)"
+      "Bash(curl -s -o /tmp/r1.json -w \"HTTP %{http_code}, time %{time_total}s\\\\n\" -X POST \"http://localhost:8000/generate-report/ebbbca3c-88ea-46d1-9e03-5119912df3b0?force=true\" --max-time 180)",
+      "Skill(commit-commands:commit-push-pr)",
+      "Bash(brew install *)"
     ]
   }
 }

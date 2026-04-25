@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Aurora, Field, Logo, Steps, ThemeToggle } from '@/components/ui';
 import { onboardBusiness, searchPlaces, uploadPOS, type PlaceSuggestion } from '@/lib/api';
@@ -204,7 +204,7 @@ function BusinessNameInput({
   );
 }
 
-export default function BusinessPage() {
+function BusinessPageInner() {
   const router             = useRouter();
   const searchParams       = useSearchParams();
   const cameFromConnections = searchParams.get('from') === 'connections';
@@ -423,5 +423,13 @@ export default function BusinessPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function BusinessPage() {
+  return (
+    <Suspense fallback={null}>
+      <BusinessPageInner />
+    </Suspense>
   );
 }
