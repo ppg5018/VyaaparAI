@@ -94,10 +94,14 @@ export async function onboardBusiness(data: {
 }
 
 export async function getBusinessByUser(userId: string): Promise<{ business_id: string } | null> {
-  const res = await fetch(`${BASE}/businesses/by-user/${encodeURIComponent(userId)}`);
-  if (res.status === 404) return null;
-  if (!res.ok) return null;
-  return res.json();
+  try {
+    const res = await fetch(`${BASE}/businesses/by-user/${encodeURIComponent(userId)}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    // Network / CORS / DNS failure — treat as "no result" so the caller falls back to localStorage
+    return null;
+  }
 }
 
 export async function generateReport(businessId: string, force = false): Promise<HealthReport> {
