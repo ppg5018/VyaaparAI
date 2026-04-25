@@ -78,6 +78,7 @@ export async function onboardBusiness(data: {
   place_id?: string;
   category: string;
   owner_name: string;
+  user_id?: string;
 }): Promise<{ business_id: string; name: string; place_id: string; google_verified_name: string }> {
   const res = await fetch(`${BASE}/onboard`, {
     method: 'POST',
@@ -89,6 +90,13 @@ export async function onboardBusiness(data: {
     return { business_id: body.detail.business_id, name: data.name, place_id: data.place_id ?? '', google_verified_name: data.name };
   }
   if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function getBusinessByUser(userId: string): Promise<{ business_id: string } | null> {
+  const res = await fetch(`${BASE}/businesses/by-user/${encodeURIComponent(userId)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
   return res.json();
 }
 

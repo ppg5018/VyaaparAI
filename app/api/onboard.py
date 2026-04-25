@@ -20,6 +20,24 @@ def search_places(q: str = Query(..., min_length=2)) -> dict:
     return {"suggestions": suggestions}
 
 
+@router.get("/businesses/by-user/{user_id}")
+def get_business_by_user(user_id: str) -> dict:
+    """Return the most recently onboarded business for a given Supabase user_id."""
+    result = (
+        supabase.table("businesses")
+        .select("id, name, place_id, category, owner_name")
+        .eq("user_id", user_id)
+        .eq("is_active", True)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="No business found for this user")
+    row = result.data[0]
+    return {"business_id": row["id"], **{k: row[k] for k in ("name", "place_id", "category", "owner_name")}}
+
+
 @router.post("/onboard", response_model=OnboardResponse, status_code=201)
 def onboard_business(req: OnboardRequest) -> OnboardResponse:
     """Register a new business and optionally verify its Google Place ID."""
@@ -69,13 +87,16 @@ def onboard_business(req: OnboardRequest) -> OnboardResponse:
     effective_place_id = resolved_place_id
 
     try:
-        result = supabase.table("businesses").insert({
+        insert_payload = {
             "name": req.name,
             "place_id": effective_place_id,
             "category": req.category,
             "owner_name": req.owner_name,
             "is_active": True,
-        }).execute()
+        }
+        if req.user_id:
+            insert_payload["user_id"] = req.user_id
+        result = supabase.table("businesses").insert(insert_payload).execute()
     except APIError as exc:
         logger.error("[onboard] DB insert failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to save business — database error")

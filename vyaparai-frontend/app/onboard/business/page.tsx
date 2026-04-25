@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Aurora, Field, Logo, Steps, ThemeToggle } from '@/components/ui';
 import { onboardBusiness, searchPlaces, uploadPOS, type PlaceSuggestion } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { useBusinessId } from '@/lib/business-context';
 import { getPendingUpload, setPendingUpload } from '@/lib/pending-upload';
 
@@ -209,6 +210,7 @@ function BusinessPageInner() {
   const searchParams       = useSearchParams();
   const cameFromConnections = searchParams.get('from') === 'connections';
   const { setBusinessId }  = useBusinessId();
+  const { user }           = useAuth();
 
   const [businessName, setBusinessName] = useState('');
   const [ownerName, setOwnerName]       = useState('');
@@ -247,6 +249,7 @@ function BusinessPageInner() {
         ...(placeId && { place_id: placeId }),
         category,
         owner_name: ownerName,
+        ...(user?.id && { user_id: user.id }),
       });
       setBusinessId(result.business_id);
 

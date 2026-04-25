@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Field } from '@/components/ui';
 import { useAuth } from '@/lib/auth-context';
+import { getBusinessByUser } from '@/lib/api';
 
 function Spinner() {
   return (
@@ -63,10 +64,17 @@ export default function LoginPage() {
       setLoading(false);
       return;
     }
-    // Check if this user has already onboarded on this device
-    const hasBusinessId = userId
-      ? !!localStorage.getItem(`vyapaar-business-id-${userId}`)
-      : false;
+    // Check backend (source of truth) — fall back to localStorage for legacy rows with NULL user_id
+    let hasBusinessId = false;
+    if (userId) {
+      const biz = await getBusinessByUser(userId);
+      if (biz) {
+        localStorage.setItem(`vyapaar-business-id-${userId}`, biz.business_id);
+        hasBusinessId = true;
+      } else {
+        hasBusinessId = !!localStorage.getItem(`vyapaar-business-id-${userId}`);
+      }
+    }
     router.push(hasBusinessId ? '/dashboard' : '/onboard/pos');
   };
 
