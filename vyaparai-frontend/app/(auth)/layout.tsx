@@ -72,7 +72,7 @@ export default function AuthLayout({
               lineHeight: 1.6,
             }}
           >
-            VyaparAI turns raw reviews, sales data, and competitor signals
+            Refloat turns raw reviews, sales data, and competitor signals
             into a single health score — every week.
           </p>
         </div>

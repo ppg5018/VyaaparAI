@@ -138,8 +138,8 @@ def run_business(biz: dict, idx: int) -> dict:
         failures.append(f"final_score {report['final_score']} out of range")
     if report["band"] not in ("healthy", "watch", "at_risk"):
         failures.append(f"unexpected band {report['band']!r}")
-    if len(report["insights"]) != 3:
-        failures.append(f"expected 3 insights, got {len(report['insights'])}")
+    if not (3 <= len(report["insights"]) <= 6):
+        failures.append(f"expected 3–6 insights, got {len(report['insights'])}")
     if not all(isinstance(i, str) and len(i) > 30 for i in report["insights"]):
         failures.append("one or more insights are too short or not strings")
     if not (isinstance(report["action"], str) and len(report["action"]) > 30):

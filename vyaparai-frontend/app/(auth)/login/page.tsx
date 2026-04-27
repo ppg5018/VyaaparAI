@@ -89,7 +89,7 @@ export default function LoginPage() {
           Welcome back
         </h1>
         <p style={{ fontSize: 14, color: 'var(--text2)', margin: 0 }}>
-          Sign in to your VyaparAI account
+          Sign in to your Refloat account
         </p>
       </div>
 
@@ -166,6 +166,13 @@ export default function LoginPage() {
           <Link href="/signup" style={{ color: 'var(--gold)', textDecoration: 'none', fontWeight: 500 }}>
             Create one
           </Link>
+        </p>
+
+        <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--text3)', margin: 0, lineHeight: 1.6 }}>
+          By signing in you agree to our{' '}
+          <Link href="/terms" style={{ color: 'var(--text3)', textDecoration: 'underline' }}>Terms of Service</Link>
+          {' '}and{' '}
+          <Link href="/privacy" style={{ color: 'var(--text3)', textDecoration: 'underline' }}>Privacy Policy</Link>
         </p>
       </div>
     </div>

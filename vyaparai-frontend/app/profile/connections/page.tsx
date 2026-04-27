@@ -281,7 +281,7 @@ export default function ConnectionsPage() {
             Connections
           </h1>
           <p style={{ fontSize: 14, color: 'var(--text3)', margin: 0, lineHeight: 1.6 }}>
-            Manage how VyaparAI pulls data from your business systems and how you get notified.
+            Manage how Refloat pulls data from your business systems and how you get notified.
           </p>
         </div>
 
@@ -324,13 +324,13 @@ export default function ConnectionsPage() {
 
         <Section
           title="Notifications"
-          subtitle="How VyaparAI reaches you outside the app"
+          subtitle="How Refloat reaches you outside the app"
           items={notifications}
         />
 
         <p style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'center', margin: 0, lineHeight: 1.5 }}>
           Want a connection that&apos;s not here?{' '}
-          <a href="mailto:hello@vyaparai.app?subject=Integration request" style={{ color: 'var(--gold)', textDecoration: 'none' }}>
+          <a href="mailto:hello@refloat.in?subject=Integration request" style={{ color: 'var(--gold)', textDecoration: 'none' }}>
             Tell us what you use →
           </a>
         </p>

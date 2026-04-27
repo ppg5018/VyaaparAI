@@ -40,7 +40,7 @@ export default function Logo({ size = 32 }: LogoProps) {
             lineHeight: 1,
           }}
         >
-          VA
+          RF
         </span>
       </div>
 
@@ -56,7 +56,7 @@ export default function Logo({ size = 32 }: LogoProps) {
             lineHeight: 1,
           }}
         >
-          VyaaparAI
+          Refloat
         </span>
         <span
           style={{
