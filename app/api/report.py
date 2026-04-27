@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.models import Competitor, CompetitorAnalysis, ReportResponse, Review, SubScores
 from app.database import supabase
-from app.services import apify_reviews, competitor_analysis, google_places, health_score, insights, pos_pipeline
+from app.services import apify_reviews, competitor_analysis, google_places, health_score, insights, pos_pipeline, review_classifier
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +15,7 @@ CACHE_TTL_HOURS = 24
 
 
 def _get_fresh_cache(business_id: str) -> ReportResponse | None:
-    """Return the latest cached report if it's < CACHE_TTL_HOURS old, else None.
-
-    Reads `report_payload` (full ReportResponse JSONB) from the most recent
-    `health_scores` row. Returns None if the column doesn't exist, no row is
-    fresh enough, or the payload can't be parsed.
-    """
+    """Return the latest cached report if it's < CACHE_TTL_HOURS old, else None."""
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=CACHE_TTL_HOURS)).isoformat()
     try:
         res = (
@@ -97,7 +92,6 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
             raise HTTPException(status_code=502, detail="Failed to fetch Google data")
 
         # 2b. Augment with Apify-scraped reviews (bypasses Google's 5-review cap).
-        # Falls back to the original 5 reviews if Apify is unavailable / cache empty.
         try:
             apify_revs = apify_reviews.get_reviews(biz["place_id"], max_reviews=50, is_competitor=False)
             if apify_revs:
@@ -115,7 +109,24 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
     # 3. POS signals — never raises
     signals = pos_pipeline.pos_signals(business_id, days=30)
 
-    # 4. Sub-scores
+    # 4. Classify reviews with Haiku — never raises, falls back to star ratings
+    classified = []
+    dominant_complaint = None
+    if google_data["reviews"]:
+        try:
+            classified = review_classifier.classify_reviews(google_data["reviews"])
+            dominant_complaint = review_classifier.dominant_complaint(classified)
+            logger.info(
+                "[generate-report] business_id=%s dominant_complaint=%s",
+                business_id, dominant_complaint,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[generate-report] business_id=%s review classification skipped (non-fatal): %s",
+                business_id, exc,
+            )
+
+    # 5. Sub-scores
     dated_reviews = [
         {"published_at": dt}
         for dt in (
@@ -129,6 +140,7 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         total_reviews=google_data["total_reviews"],
         recent_reviews=google_data["reviews"],
         all_reviews_with_dates=dated_reviews or None,
+        classified_reviews=classified or None,
     )
     c_score = health_score.competitor_score(
         my_rating=google_data["rating"],
@@ -136,15 +148,16 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
     )
     p_score = health_score.pos_score(signals)
 
-    # 5. Final score + band
+    # 6. Final score + band
     score_result = health_score.calculate_health_score(r_score, c_score, p_score)
 
-    # 6. Generate insights via Claude
+    # 7. Generate insights via Claude Sonnet (dominant complaint injected into prompt)
     try:
         insights_result = insights.generate_insights(
             business_data=google_data,
             scores=score_result,
             pos_signals=signals,
+            dominant_complaint=dominant_complaint,
         )
     except RuntimeError as exc:
         logger.error(
@@ -152,17 +165,19 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         )
         raise HTTPException(status_code=500, detail="Insight generation failed")
 
-    # 6b. Competitor analysis — never raises, returns empty on failure
+    # 7b. Competitor analysis — never raises, returns empty on failure
     comp_analysis = competitor_analysis.analyze_competitors(
         my_business=google_data,
         competitors=google_data.get("competitors", []),
     )
 
-    # 7. Build the response
+    # 8. Build the response
     MAX_INSIGHT = 400
     MAX_ACTION  = 600
     safe_insights = [i[:MAX_INSIGHT] for i in insights_result["insights"]]
     safe_action   = insights_result["action"][:MAX_ACTION]
+
+    dominant_display = dominant_complaint.replace("_", " ") if dominant_complaint else None
 
     response = ReportResponse(
         business_id=business_id,
@@ -197,6 +212,7 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         ],
         insights=safe_insights,
         action=safe_action,
+        dominant_complaint=dominant_display,
         competitor_analysis=CompetitorAnalysis(
             themes=comp_analysis.get("themes", []),
             opportunities=comp_analysis.get("opportunities", []),
@@ -205,7 +221,7 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
 
-    # 8. Persist to health_scores — including full payload for the cache
+    # 9. Persist to health_scores — including full payload for the cache
     try:
         supabase.table("health_scores").insert({
             "business_id": business_id,
@@ -225,8 +241,8 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         )
 
     logger.info(
-        "[generate-report] business_id=%s score=%d band=%s (fresh)",
-        business_id, score_result["final_score"], score_result["band"],
+        "[generate-report] business_id=%s score=%d band=%s dominant_complaint=%s (fresh)",
+        business_id, score_result["final_score"], score_result["band"], dominant_complaint,
     )
 
     return response

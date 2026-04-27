@@ -94,6 +94,7 @@ class ReportResponse(BaseModel):
     competitors: list[Competitor]
     insights: list[str]
     action: str
+    dominant_complaint: str | None = None
     competitor_analysis: CompetitorAnalysis = CompetitorAnalysis()
     generated_at: str
 
@@ -108,6 +109,7 @@ class HistoryScore(BaseModel):
     google_rating: float
     insights: list[str]
     action: str
+    dominant_complaint: str | None = None
     created_at: str
 
 

@@ -18,9 +18,11 @@ REVIEW_CACHE_TTL_DAYS_COMPETITOR = 30 # Re-sync competitor reviews monthly
 # Review time-decay
 REVIEW_HALFLIFE_MONTHS = 6  # months at which a review's volume weight drops to 0.5
 
-# Claude model
+# Claude models
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
+HAIKU_MODEL  = "claude-haiku-4-5-20251001"   # fast + cheap — used for review classification
 MAX_TOKENS = 800
+HAIKU_MAX_TOKENS = 4096  # classifier returns up to 50 JSON objects
 
 # Health score weights
 REVIEW_WEIGHT = 0.40

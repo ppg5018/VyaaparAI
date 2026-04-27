@@ -46,14 +46,17 @@ def review_score(
     total_reviews: int,
     recent_reviews: list,
     all_reviews_with_dates: list | None = None,
+    classified_reviews: list | None = None,
     now: datetime | None = None,
 ) -> int:
     """Compute 0-100 review quality score from Google Places data.
 
+    When ``classified_reviews`` is supplied (from review_classifier), the trend
+    sub-score uses Claude-rated sentiment instead of star ratings. This catches
+    the common Indian review pattern of 4★ with strongly negative text.
+
     When ``all_reviews_with_dates`` is supplied, the volume sub-score uses a
     time-decayed weighted count so recent reviews count more than stale ones.
-    Otherwise it falls back to the flat ``log10(total_reviews)`` formula so
-    callers without timestamped review history are unaffected.
     """
     if not rating:
         return 0
@@ -77,13 +80,26 @@ def review_score(
     else:
         volume_pts = min(25, math.log10(max(total_reviews, 1)) * 10)
 
-    if not recent_reviews:
-        trend_pts = 10
-    else:
-        # Use up to 50 most recent reviews for a more stable trend signal
+    if classified_reviews:
+        # Use Claude's sentiment scores — catches "polite 4★ but angry text"
+        scores = [c["sentiment_score"] for c in classified_reviews if c.get("sentiment_score")]
+        if scores:
+            sentiment_avg = sum(scores) / len(scores)
+            trend_pts = (sentiment_avg / 5.0) * 20
+            logger.debug(
+                "review_score: using Claude sentiment avg=%.2f over %d reviews (star avg would be %.2f)",
+                sentiment_avg, len(scores),
+                sum(r.get("rating", 3) for r in recent_reviews[:len(scores)]) / len(scores) if recent_reviews else 0,
+            )
+        else:
+            trend_pts = 10
+    elif recent_reviews:
+        # Fallback: star rating average over up to 50 reviews
         sample = recent_reviews[:50]
         recent_avg = sum(r["rating"] for r in sample) / len(sample)
         trend_pts = (recent_avg / 5.0) * 20
+    else:
+        trend_pts = 10
 
     total = int(quality_pts + volume_pts + trend_pts)
 
