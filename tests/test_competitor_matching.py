@@ -247,7 +247,8 @@ check(
 )
 check(_tag_calls["count"] == 1, "2. Haiku tagger called exactly once", _tag_calls["count"])
 
-# Test 3: when strict pipeline strips below MIN_COMPETITORS_AFTER_FILTER, fall back.
+# Test 3: when my_tag is specific and Haiku says no competitors match, return
+# empty rather than fall back. Stops the Bata-vs-Opticians failure mode.
 competitor_matching.tag_subcategories = _stub_tags_drop_all
 _tag_calls["count"] = 0
 
@@ -262,9 +263,9 @@ out = filter_competitors(
     competitors=competitors,
 )
 check(
-    len(out) == 4,
-    "3. Fallback: strict filter drops everyone → return review-count-filtered set",
-    len(out),
+    out == [],
+    "3. Hard sub-category: my_tag specific + zero matches → empty (caller uses 65 neutral)",
+    out,
 )
 
 # Test 4: empty input
@@ -354,6 +355,73 @@ check(
     len(out) == 2,
     "11. Unknown category: no type/name exclusions; price=None keeps all; sub-cat vocab missing → no filter",
     len(out),
+)
+
+# Test 12: my_tag = "general" → no usable signal → fall back to price+name+type set
+def _stub_tags_me_general(parent_category, my_name, competitors):
+    _tag_calls["count"] += 1
+    tags = {ME_KEY: "general"}
+    for c in competitors:
+        tags[c["place_id"]] = "south_indian"  # specific but mine isn't
+    return tags
+
+competitor_matching.tag_subcategories = _stub_tags_me_general
+_tag_calls["count"] = 0
+out = filter_competitors(
+    my_business={"name": "Me", "category": "restaurant", "price_level": 2},
+    competitors=[
+        {"name": "X", "place_id": "p1", "review_count": 100, "rating": 4.0, "price_level": 2},
+        {"name": "Y", "place_id": "p2", "review_count": 100, "rating": 4.0, "price_level": 2},
+    ],
+)
+check(
+    len(out) == 2,
+    "12. my_tag='general' → no signal to filter on → keep price+name+type set",
+    len(out),
+)
+
+# Test 13: Bata-style — footwear store among non-footwear retail neighbours
+# (clean test that exercises the sub-category hard signal, not the name blocklist)
+def _stub_tags_footwear_alone(parent_category, my_name, competitors):
+    _tag_calls["count"] += 1
+    tags = {ME_KEY: "footwear"}
+    for c in competitors:
+        tags[c["place_id"]] = "clothing"   # everyone else is clothing
+    return tags
+
+competitor_matching.tag_subcategories = _stub_tags_footwear_alone
+_tag_calls["count"] = 0
+out = filter_competitors(
+    my_business={"name": "Me Footwear", "category": "retail", "price_level": 2},
+    competitors=[
+        # Names chosen to NOT trigger retail name blocklist (no "optician","samsung" etc.)
+        {"name": "Generic Store A", "place_id": "p1", "review_count": 100, "rating": 4.0, "price_level": 2, "types": ["store"]},
+        {"name": "Generic Store B", "place_id": "p2", "review_count": 100, "rating": 4.0, "price_level": 2, "types": ["store"]},
+        {"name": "Generic Store C", "place_id": "p3", "review_count": 100, "rating": 4.0, "price_level": 2, "types": ["store"]},
+    ],
+)
+check(
+    out == [],
+    "13. Bata-style: footwear shop, no footwear competitors → empty (vs polluted by clothing/electronics)",
+    out,
+)
+
+# Test 14: intra-retail name blocklist catches obvious mismatches even when Haiku is unavailable
+competitor_matching.tag_subcategories = _stub_tags_empty   # Haiku failed
+_tag_calls["count"] = 0
+out = filter_competitors(
+    my_business={"name": "Bata Store", "category": "retail", "price_level": 2},
+    competitors=[
+        {"name": "Student Opticians",      "place_id": "p1", "review_count": 66,  "rating": 4.7, "price_level": 2, "types": ["store"]},
+        {"name": "PREM RADIOS SAMSUNG",    "place_id": "p2", "review_count": 78,  "rating": 4.4, "price_level": 2, "types": ["electronics_store"]},
+        {"name": "Sleepwell Gallery",      "place_id": "p3", "review_count": 418, "rating": 4.3, "price_level": 2, "types": ["furniture_store"]},
+        {"name": "Genuine Footwear Shop",  "place_id": "p4", "review_count": 200, "rating": 4.2, "price_level": 2, "types": ["shoe_store"]},
+    ],
+)
+check(
+    set(names(out)) == {"Genuine Footwear Shop"},
+    "14. Retail name blocklist: optician/samsung/sleepwell stripped even with Haiku off",
+    names(out),
 )
 
 # Restore original tagger

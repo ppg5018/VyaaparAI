@@ -125,8 +125,17 @@ NAME_EXCLUSION_KEYWORDS: dict[str, list[str]] = {
         "pharmacy", "chemist", "medical",
     ],
     "retail": [
+        # Cross-category (not retail at all)
         "pharmacy", "chemist", "hospital", "clinic",
         "bank", "atm", "petrol", "fuel",
+        # Intra-retail sub-category leaks — catches obvious mismatches when
+        # Haiku tagging is unavailable. Specific brand/keyword tokens; avoid
+        # generic words ("store", "shop") that would over-match.
+        "optician", "opticals", "spectacle",
+        "mattress", "sleepwell", "kurlon",
+        "samsung", "lg ", "sony", "vivo", "oppo",
+        "jockey", "vip", "rupa",
+        "tanishq", "kalyan jewellers", "joyalukkas",
     ],
     "pharmacy": [
         "restaurant", "dhaba", "hotel", "café", "cafe",
