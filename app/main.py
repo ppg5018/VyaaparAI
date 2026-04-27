@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -8,12 +10,19 @@ from app.api import actions, onboard, pos, report, history
 setup_logging()
 
 
+def _allowed_origins() -> list[str]:
+    raw = os.getenv("ALLOWED_ORIGINS", "").strip()
+    if not raw:
+        return ["*"]
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
 def create_app() -> FastAPI:
     """Construct and configure the FastAPI application."""
     application = FastAPI(title="VyaparAI Module 1", version="0.1.0")
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=_allowed_origins(),
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -42,5 +51,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 @app.get("/")
 def root() -> dict:
-    """Health check endpoint."""
     return {"status": "VyaparAI Module 1 running"}
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok"}
