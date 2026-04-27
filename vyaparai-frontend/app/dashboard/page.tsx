@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   generateReport, getHistory, getActions, logAction, deleteAction,
-  type ActionEntry, type Band, type HealthReport, type HistoryEntry,
+  type ActionEntry, type Band, type HealthReport, type HistoryEntry, type PosSignals,
 } from '@/lib/api';
 import { useBusinessId } from '@/lib/business-context';
 import { useAuth } from '@/lib/auth-context';
@@ -390,7 +390,17 @@ function OverviewTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx })
     : '280px minmax(0, 1fr) minmax(0, 1fr)';
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all');
 
-  const allReviews = report.reviews.filter((r) => r.text.trim());
+  // Older cached payloads may lack pos_signals; fall back to empty shape so the page never crashes.
+  const posSignals: PosSignals = report.pos_signals ?? {
+    revenue_trend_pct:  null,
+    slow_categories:    [],
+    top_product:        null,
+    aov_direction:      null,
+    repeat_rate_pct:    null,
+    repeat_rate_trend:  null,
+  };
+
+  const allReviews = (report.reviews ?? []).filter((r) => r.text.trim());
   const posCount   = allReviews.filter((r) => r.rating >= 4).length;
   const negCount   = allReviews.filter((r) => r.rating <= 3).length;
   const visible    = reviewFilter === 'positive'
@@ -493,43 +503,43 @@ function OverviewTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx })
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>
             <Stat
               label="Revenue Trend"
-              value={formatTrend(report.pos_signals.revenue_trend_pct)}
+              value={formatTrend(posSignals.revenue_trend_pct)}
               sub="vs prior month"
-              color={trendColor(report.pos_signals.revenue_trend_pct)}
+              color={trendColor(posSignals.revenue_trend_pct)}
               glow
             />
             <Stat
               label="Top Product"
-              value={report.pos_signals.top_product ?? '—'}
-              sub={report.revenue_by_category[0] ? `${report.revenue_by_category[0].pct}% of revenue` : 'no POS data'}
+              value={posSignals.top_product ?? '—'}
+              sub={report.revenue_by_category?.[0] ? `${report.revenue_by_category[0].pct}% of revenue` : 'no POS data'}
               color="var(--gold)"
             />
             <Stat
               label="AOV Direction"
-              value={formatAov(report.pos_signals.aov_direction)}
+              value={formatAov(posSignals.aov_direction)}
               sub="avg order value"
-              color={aovColor(report.pos_signals.aov_direction)}
+              color={aovColor(posSignals.aov_direction)}
             />
-            {report.pos_signals.slow_categories.length > 0 ? (
+            {posSignals.slow_categories.length > 0 ? (
               <div style={{ background: 'var(--red-dim)', border: '1px solid rgba(255,95,95,0.25)', borderRadius: 'var(--r)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, justifyContent: 'center' }}>
                 <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text3)' }}>Slow</span>
                 <span style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--red)', lineHeight: 1.25 }}>
-                  {report.pos_signals.slow_categories.join(', ')}
+                  {posSignals.slow_categories.join(', ')}
                 </span>
               </div>
             ) : (
               <Stat
                 label="Repeat Rate"
-                value={report.pos_signals.repeat_rate_pct != null ? `${report.pos_signals.repeat_rate_pct.toFixed(1)}%` : '—'}
-                sub={report.pos_signals.repeat_rate_trend != null ? `${formatTrend(report.pos_signals.repeat_rate_trend)} vs prior` : 'returning customers'}
+                value={posSignals.repeat_rate_pct != null ? `${posSignals.repeat_rate_pct.toFixed(1)}%` : '—'}
+                sub={posSignals.repeat_rate_trend != null ? `${formatTrend(posSignals.repeat_rate_trend)} vs prior` : 'returning customers'}
                 color="var(--emerald)"
               />
             )}
           </div>
           <div style={{ marginTop: 'auto' }}>
             <span style={{ ...SEC, marginBottom: 8 }}>8-Week Revenue</span>
-            {report.weekly_revenue.length > 0 ? (
-              <Bars data={report.weekly_revenue} height={80} />
+            {(report.weekly_revenue?.length ?? 0) > 0 ? (
+              <Bars data={report.weekly_revenue!} height={80} />
             ) : (
               <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0, textAlign: 'center', padding: '24px 0' }}>
                 Upload POS data to see revenue trends.
@@ -816,8 +826,8 @@ function CompetitorsTab({ report }: { report: HealthReport }) {
 function PosTab({ report }: { report: HealthReport }) {
   const { isMobile } = useViewport();
   const cols = isMobile ? '1fr' : '1fr 1fr';
-  const cats = report.revenue_by_category;
-  const weekly = report.weekly_revenue;
+  const cats = report.revenue_by_category ?? [];
+  const weekly = report.weekly_revenue ?? [];
   const latestWeek = weekly[weekly.length - 1];
   const formatINR = (n: number) =>
     n >= 100000 ? `₹${(n / 100000).toFixed(2)}L` : n >= 1000 ? `₹${(n / 1000).toFixed(0)}k` : `₹${Math.round(n)}`;
@@ -1330,7 +1340,7 @@ export default function DashboardPage() {
             </>
           )}
         </div>
-        {report && report.pos_signals.revenue_trend_pct != null && (
+        {report && report.pos_signals?.revenue_trend_pct != null && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--gold-dim)', border: '1px solid rgba(245,166,35,0.3)', borderRadius: 999, padding: '5px 13px', fontSize: 12, fontWeight: 500, color: 'var(--gold)', flexShrink: 0, marginTop: 2 }}>
             📊 POS Data Loaded
           </div>

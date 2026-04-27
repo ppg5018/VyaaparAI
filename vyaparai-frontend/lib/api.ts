@@ -65,9 +65,9 @@ export interface HealthReport {
   insights: [string, string, string];
   action: string;
   competitor_analysis: CompetitorAnalysis;
-  pos_signals: PosSignals;
-  weekly_revenue: WeeklyRevenue[];
-  revenue_by_category: CategoryRevenue[];
+  pos_signals?: PosSignals;
+  weekly_revenue?: WeeklyRevenue[];
+  revenue_by_category?: CategoryRevenue[];
   generated_at: string;
 }
 
