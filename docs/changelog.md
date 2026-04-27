@@ -5,6 +5,12 @@ Format: `## [date] — [what changed]`
 
 ---
 
+## [27 April 2026] — Improvement #1 — Time-decayed review volume
+
+- `review_score()` now accepts optional `all_reviews_with_dates` and `now` parameters. When dated reviews are provided, the volume sub-score weights each review by `1 / (1 + months_old / 6)` so recent reviews count more than stale ones. Old call sites are unaffected (strict additive change).
+- Added `REVIEW_HALFLIFE_MONTHS = 6` to `app/config.py` and `parse_posted_at()` helper in `apify_reviews.py`. `app/api/report.py` now passes parsed Apify timestamps into `review_score()`.
+- 8 new assertions in `tests/test_health_score.py` (31/31 passing); calibration unchanged on the no-dated-reviews path.
+
 ## [24 April 2026] — Session 4 — FastAPI endpoints + e2e test (MVP complete pending GCP unblock)
 
 - Built `main.py`: FastAPI app with 4 endpoints (GET /, POST /onboard, POST /upload-pos/{id}, POST /generate-report/{id}, GET /history/{id})

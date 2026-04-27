@@ -116,10 +116,19 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
     signals = pos_pipeline.pos_signals(business_id, days=30)
 
     # 4. Sub-scores
+    dated_reviews = [
+        {"published_at": dt}
+        for dt in (
+            apify_reviews.parse_posted_at(r.get("posted_at"))
+            for r in google_data["reviews"]
+        )
+        if dt is not None
+    ]
     r_score = health_score.review_score(
         rating=google_data["rating"],
         total_reviews=google_data["total_reviews"],
         recent_reviews=google_data["reviews"],
+        all_reviews_with_dates=dated_reviews or None,
     )
     c_score = health_score.competitor_score(
         my_rating=google_data["rating"],
