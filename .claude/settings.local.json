@@ -41,7 +41,11 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8000/docs)",
       "Bash(npm run *)",
       "Bash(awk -F',' 'NR>1 {print $1}' /Users/pg/Downloads/indian_restaurant_sales_current_dates.csv)",
-      "Bash(lsof -iTCP:3000 -sTCP:LISTEN)"
+      "Bash(lsof -iTCP:3000 -sTCP:LISTEN)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(curl *)",
+      "PowerShell(Get-WmiObject *)",
+      "PowerShell(Stop-Process *)"
     ]
   }
 }

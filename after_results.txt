@@ -1,0 +1,57 @@
+2026-04-24 15:11:19,477 — ERROR — get_business_details ApiError for place_id=ChIJQ-INPeG_wjsRxqh06SKJIdo: REQUEST_DENIED (You’re calling a legacy API, which is not enabled for your project. To get newer features and more functionality, switch to the Places API (New) or Routes API. Learn more: https://developers.google.com/maps/legacy#LegacyApiNotActivatedMapError)
+2026-04-24 15:11:19,478 — ERROR — [onboard] place_id=ChIJQ-INPeG_wjsRxqh06SKJIdo invalid: Invalid place_id: ChIJQ-INPeG_wjsRxqh06SKJIdo
+2026-04-24 15:11:19,590 — ERROR — get_business_details ApiError for place_id=ChIJGasrwJy8wjsRDOdA_5fzBz4: REQUEST_DENIED (You’re calling a legacy API, which is not enabled for your project. To get newer features and more functionality, switch to the Places API (New) or Routes API. Learn more: https://developers.google.com/maps/legacy#LegacyApiNotActivatedMapError)
+2026-04-24 15:11:19,598 — ERROR — [onboard] place_id=ChIJGasrwJy8wjsRDOdA_5fzBz4 invalid: Invalid place_id: ChIJGasrwJy8wjsRDOdA_5fzBz4
+2026-04-24 15:11:19,941 — ERROR — get_business_details ApiError for place_id=ChIJLaTh6M6_wjsRwDw9wNUqg6M: REQUEST_DENIED (You’re calling a legacy API, which is not enabled for your project. To get newer features and more functionality, switch to the Places API (New) or Routes API. Learn more: https://developers.google.com/maps/legacy#LegacyApiNotActivatedMapError)
+2026-04-24 15:11:19,941 — ERROR — [onboard] place_id=ChIJLaTh6M6_wjsRwDw9wNUqg6M invalid: Invalid place_id: ChIJLaTh6M6_wjsRwDw9wNUqg6M
+2026-04-24 15:11:20,042 — ERROR — get_business_details ApiError for place_id=ChIJByb6dM6-wjsRmKLSZ8lx10c: REQUEST_DENIED (You’re calling a legacy API, which is not enabled for your project. To get newer features and more functionality, switch to the Places API (New) or Routes API. Learn more: https://developers.google.com/maps/legacy#LegacyApiNotActivatedMapError)
+2026-04-24 15:11:20,043 — ERROR — [onboard] place_id=ChIJByb6dM6-wjsRmKLSZ8lx10c invalid: Invalid place_id: ChIJByb6dM6-wjsRmKLSZ8lx10c
+2026-04-24 15:11:20,147 — ERROR — get_business_details ApiError for place_id=ChIJa3rFVfW_wjsRs1a6oJfYMAI: REQUEST_DENIED (You’re calling a legacy API, which is not enabled for your project. To get newer features and more functionality, switch to the Places API (New) or Routes API. Learn more: https://developers.google.com/maps/legacy#LegacyApiNotActivatedMapError)
+2026-04-24 15:11:20,147 — ERROR — [onboard] place_id=ChIJa3rFVfW_wjsRs1a6oJfYMAI invalid: Invalid place_id: ChIJa3rFVfW_wjsRs1a6oJfYMAI
+
+WARNING: The Place IDs in TEST_BUSINESSES may be placeholders.
+Replace them with real Pune Place IDs before running.
+See the instructions at the top of this file.
+
+
+────────────────────────────────────────────────────────────
+Business 1/5: Vaishali Restaurant
+────────────────────────────────────────────────────────────
+  [onboard] FAIL — onboard returned 400: {"detail":"Invalid place_id: ChIJQ-INPeG_wjsRxqh06SKJIdo"}
+
+────────────────────────────────────────────────────────────
+Business 2/5: Cafe Goodluck
+────────────────────────────────────────────────────────────
+  [onboard] FAIL — onboard returned 400: {"detail":"Invalid place_id: ChIJGasrwJy8wjsRDOdA_5fzBz4"}
+
+────────────────────────────────────────────────────────────
+Business 3/5: Hotel Shreyas
+────────────────────────────────────────────────────────────
+  [onboard] FAIL — onboard returned 400: {"detail":"Invalid place_id: ChIJLaTh6M6_wjsRwDw9wNUqg6M"}
+
+────────────────────────────────────────────────────────────
+Business 4/5: D-Mart Aundh
+────────────────────────────────────────────────────────────
+  [onboard] FAIL — onboard returned 400: {"detail":"Invalid place_id: ChIJByb6dM6-wjsRmKLSZ8lx10c"}
+
+────────────────────────────────────────────────────────────
+Business 5/5: Westside Pune
+────────────────────────────────────────────────────────────
+  [onboard] FAIL — onboard returned 400: {"detail":"Invalid place_id: ChIJa3rFVfW_wjsRs1a6oJfYMAI"}
+
+════════════════════════════════════════════════════════════
+E2E TEST SUMMARY
+════════════════════════════════════════════════════════════
+Passed: 0/5 businesses
+Average score (passed only): N/A
+Healthy band: 0  |  Watch: 0  |  At risk: 0
+
+Failed businesses:
+  • Vaishali Restaurant: onboard returned 400: {"detail":"Invalid place_id: ChIJQ-INPeG_wjsRxqh06SKJIdo"}
+  • Cafe Goodluck: onboard returned 400: {"detail":"Invalid place_id: ChIJGasrwJy8wjsRDOdA_5fzBz4"}
+  • Hotel Shreyas: onboard returned 400: {"detail":"Invalid place_id: ChIJLaTh6M6_wjsRwDw9wNUqg6M"}
+  • D-Mart Aundh: onboard returned 400: {"detail":"Invalid place_id: ChIJByb6dM6-wjsRmKLSZ8lx10c"}
+  • Westside Pune: onboard returned 400: {"detail":"Invalid place_id: ChIJa3rFVfW_wjsRs1a6oJfYMAI"}
+
+5 business(es) failed — see details above.
+════════════════════════════════════════════════════════════
