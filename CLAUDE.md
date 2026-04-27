@@ -68,6 +68,7 @@ final_score = int(review_score * 0.40 + competitor_score * 0.25 + pos_score * 0.
 
 - `review_score`: rating quality (0–55) + volume log scale (0–25) + recent trend (0–20)
   - Quality formula: `((rating - 1) / 4.0) * 55` — normalised within the actual Google [1–5] scale so a 1-star rating scores near 0 quality points
+  - Volume formula: when dated reviews are available (Apify path), each review is weighted by `1 / (1 + months_old / REVIEW_HALFLIFE_MONTHS)` (half-life = 6 months) and `volume_pts = min(25, log10(weighted_count) * 10)`. When dated reviews are absent (Google-Places-only path), falls back to flat `log10(total_reviews) * 10`. `now` is injected for deterministic testing.
 - `competitor_score`: clamp(60 + (my_rating - mean_competitor_rating) * 30, 0, 100). No competitors = 65.
 - `pos_score`: revenue trend (0–50) + slow inventory (0–30) + AOV health (0–20). No data = 50.
 

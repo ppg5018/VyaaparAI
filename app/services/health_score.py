@@ -1,5 +1,6 @@
 import math
 import logging
+from datetime import datetime, timezone
 
 from app.config import (
     REVIEW_WEIGHT,
@@ -9,13 +10,51 @@ from app.config import (
     WATCH_THRESHOLD,
     NO_COMPETITORS_NEUTRAL,
     NO_POS_DATA_NEUTRAL,
+    REVIEW_HALFLIFE_MONTHS,
 )
 
 logger = logging.getLogger(__name__)
 
+_DAYS_PER_MONTH = 30.44
 
-def review_score(rating: float, total_reviews: int, recent_reviews: list) -> int:
-    """Compute 0-100 review quality score from Google Places data."""
+
+def _weighted_review_count(
+    reviews_with_dates: list,
+    now: datetime,
+    halflife_months: float,
+) -> float:
+    """Sum decay-weighted review contributions.
+
+    Each review dict must have a ``published_at`` datetime. Reviews missing
+    that field or with an unparseable value are skipped. Future-dated reviews
+    (clock skew) are clamped to age 0.
+    """
+    total = 0.0
+    for r in reviews_with_dates or []:
+        published_at = r.get("published_at") if isinstance(r, dict) else None
+        if not isinstance(published_at, datetime):
+            continue
+        if published_at.tzinfo is None:
+            published_at = published_at.replace(tzinfo=timezone.utc)
+        months_old = max(0.0, (now - published_at).days / _DAYS_PER_MONTH)
+        total += 1.0 / (1.0 + months_old / halflife_months)
+    return total
+
+
+def review_score(
+    rating: float,
+    total_reviews: int,
+    recent_reviews: list,
+    all_reviews_with_dates: list | None = None,
+    now: datetime | None = None,
+) -> int:
+    """Compute 0-100 review quality score from Google Places data.
+
+    When ``all_reviews_with_dates`` is supplied, the volume sub-score uses a
+    time-decayed weighted count so recent reviews count more than stale ones.
+    Otherwise it falls back to the flat ``log10(total_reviews)`` formula so
+    callers without timestamped review history are unaffected.
+    """
     if not rating:
         return 0
 
@@ -27,7 +66,16 @@ def review_score(rating: float, total_reviews: int, recent_reviews: list) -> int
     # Google ratings are 1–5, not 0–5; normalise within the actual range so a
     # 1-star business scores near 0 quality points rather than ~20%.
     quality_pts = ((rating - 1) / 4.0) * 55
-    volume_pts = min(25, math.log10(max(total_reviews, 1)) * 10)
+
+    if all_reviews_with_dates:
+        if now is None:
+            now = datetime.now(timezone.utc)
+        weighted_count = _weighted_review_count(
+            all_reviews_with_dates, now, REVIEW_HALFLIFE_MONTHS
+        )
+        volume_pts = min(25, math.log10(max(weighted_count, 1)) * 10)
+    else:
+        volume_pts = min(25, math.log10(max(total_reviews, 1)) * 10)
 
     if not recent_reviews:
         trend_pts = 10

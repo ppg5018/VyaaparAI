@@ -94,7 +94,8 @@ Developer (CLI / Swagger UI)
 ### app/services/health_score.py — Scoring engine
 
 **Functions:**
-- `review_score(rating, total_reviews, recent_reviews) -> int` — 0–100
+- `review_score(rating, total_reviews, recent_reviews, all_reviews_with_dates=None, now=None) -> int` — 0–100. When `all_reviews_with_dates` is supplied, the volume sub-score uses a time-decayed weighted count (half-life = `REVIEW_HALFLIFE_MONTHS`); otherwise falls back to flat `log10(total_reviews)`. `now` is injected for determinism.
+- `_weighted_review_count(reviews_with_dates, now, halflife_months) -> float` — internal helper; `weight = 1 / (1 + months_old / halflife_months)`, future-dated reviews clamped to age 0, unparseable dates skipped silently.
 - `competitor_score(my_rating, competitors) -> int` — 0–100, 65 if no competitors
 - `pos_score(signals: dict) -> int` — 0–100, 50 if no POS data
 - `calculate_health_score(review_s, competitor_s, pos_s) -> int` — weighted combination

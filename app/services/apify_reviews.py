@@ -143,16 +143,24 @@ def _update_sync_marker(place_id: str, total_reviews: int) -> None:
 # ─── Apify HTTP call ───────────────────────────────────────────────────────────
 
 
-def _relative_time_from_iso(iso: Optional[str]) -> str:
-    """Convert an ISO timestamp into a human-readable relative time string."""
+def parse_posted_at(iso: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO 8601 timestamp into a UTC-aware datetime, or None on failure."""
     if not iso:
-        return ""
+        return None
     try:
         dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
     except ValueError:
-        return ""
+        return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _relative_time_from_iso(iso: Optional[str]) -> str:
+    """Convert an ISO timestamp into a human-readable relative time string."""
+    dt = parse_posted_at(iso)
+    if dt is None:
+        return ""
     delta = datetime.now(timezone.utc) - dt
     days = delta.days
     if days < 1:    return "today"

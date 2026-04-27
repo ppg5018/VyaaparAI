@@ -8,6 +8,8 @@ Part C: edge case integration tests
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from datetime import datetime, timedelta, timezone
+
 from app.services.health_score import review_score, competitor_score, pos_score, calculate_health_score
 
 _passed = 0
@@ -142,6 +144,71 @@ check(result["final_score"] == 100, "3. Everything perfect: final == 100", resul
 
 result = calculate_health_score(0, 0, 0)
 check(result["final_score"] == 0, "4. Everything zero: final == 0", result["final_score"])
+
+
+# ── PART D: Time-Decayed Review Volume ────────────────────────────────────────
+
+print("\n=== Part D: Time-Decayed Review Volume ===")
+
+NOW = datetime(2026, 4, 27, tzinfo=timezone.utc)
+
+def _dated(months_old_list):
+    return [{"published_at": NOW - timedelta(days=m * 30.44)} for m in months_old_list]
+
+# 1. Recent-reviews business beats stale-reviews business
+recent_reviews_dated = _dated([0.5] * 800)  # all under a month old
+stale_reviews_dated = _dated([60] * 800)    # all 5 years old
+s_recent = review_score(4.5, 800, [{"rating": 4.5}] * 5, all_reviews_with_dates=recent_reviews_dated, now=NOW)
+s_stale = review_score(4.5, 800, [{"rating": 4.5}] * 5, all_reviews_with_dates=stale_reviews_dated, now=NOW)
+check(s_recent - s_stale >= 5, "1. Recent-800 beats stale-800 by >= 5 pts", f"recent={s_recent} stale={s_stale} diff={s_recent - s_stale}")
+
+# 2. Empty all_reviews_with_dates falls back to flat log-volume — identical to pre-change
+s_baseline = review_score(4.0, 100, [{"rating": 4.0}] * 5)
+s_empty = review_score(4.0, 100, [{"rating": 4.0}] * 5, all_reviews_with_dates=[], now=NOW)
+check(s_baseline == s_empty, "2. Empty list falls back to log-volume (matches baseline)", f"baseline={s_baseline} empty={s_empty}")
+
+# 3. all_reviews_with_dates=None — same as omitting the parameter
+s_none = review_score(4.0, 100, [{"rating": 4.0}] * 5, all_reviews_with_dates=None, now=NOW)
+check(s_baseline == s_none, "3. None falls back to log-volume (matches baseline)", f"baseline={s_baseline} none={s_none}")
+
+# 4. Mixed ages between extremes
+mixed_dated = _dated([m for m in (1, 12, 24, 36) for _ in range(50)])  # 200 reviews evenly across 4 years
+s_mixed = review_score(4.5, 200, [{"rating": 4.5}] * 5, all_reviews_with_dates=mixed_dated, now=NOW)
+recent_200 = _dated([1] * 200)
+stale_200 = _dated([60] * 200)
+s_recent200 = review_score(4.5, 200, [{"rating": 4.5}] * 5, all_reviews_with_dates=recent_200, now=NOW)
+s_stale200 = review_score(4.5, 200, [{"rating": 4.5}] * 5, all_reviews_with_dates=stale_200, now=NOW)
+check(s_stale200 < s_mixed < s_recent200, "4. Mixed-age score sits strictly between recent-only and stale-only", f"stale={s_stale200} mixed={s_mixed} recent={s_recent200}")
+
+# 5. Future-dated review clamps to age 0 (weight 1.0); no crash
+future_dated = [{"published_at": NOW + timedelta(days=30)}]
+s_future = review_score(4.0, 1, [], all_reviews_with_dates=future_dated, now=NOW)
+single_now = [{"published_at": NOW}]
+s_now_single = review_score(4.0, 1, [], all_reviews_with_dates=single_now, now=NOW)
+check(s_future == s_now_single, "5. Future-dated review behaves like a 0-month-old review (clamped, no crash)", f"future={s_future} now={s_now_single}")
+
+# 6. Unparseable / missing date — review skipped silently, others still counted
+mixed_invalid = [
+    {"published_at": NOW},
+    {"published_at": "not-a-datetime"},
+    {},
+    {"published_at": None},
+    {"published_at": NOW - timedelta(days=30)},
+]
+s_invalid = review_score(4.0, 5, [], all_reviews_with_dates=mixed_invalid, now=NOW)
+two_valid = [{"published_at": NOW}, {"published_at": NOW - timedelta(days=30)}]
+s_two_valid = review_score(4.0, 5, [], all_reviews_with_dates=two_valid, now=NOW)
+check(s_invalid == s_two_valid, "6. Unparseable/missing dates are skipped silently", f"invalid={s_invalid} two_valid={s_two_valid}")
+
+# 7. Single very recent review — weighted count = 1.0 → log10(1)*10 = 0 volume points
+s_single = review_score(4.0, 1, [], all_reviews_with_dates=[{"published_at": NOW}], now=NOW)
+# quality_pts = ((4-1)/4)*55 = 41.25, volume_pts = 0, trend_pts = 10 (no recent_reviews) → 51
+check(s_single == 51, "7. Single very recent review: volume_pts = 0 (matches existing 1-review behaviour)", s_single)
+
+# 8. Determinism — two consecutive calls with same now produce identical output
+s_d1 = review_score(4.5, 800, [{"rating": 4.5}] * 5, all_reviews_with_dates=recent_reviews_dated, now=NOW)
+s_d2 = review_score(4.5, 800, [{"rating": 4.5}] * 5, all_reviews_with_dates=recent_reviews_dated, now=NOW)
+check(s_d1 == s_d2, "8. Determinism: same inputs + same now -> same score", f"call1={s_d1} call2={s_d2}")
 
 
 # ── Summary ────────────────────────────────────────────────────────────────────
