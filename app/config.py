@@ -68,31 +68,6 @@ COMPETITOR_RADIUS_METERS = 800
 MAX_COMPETITORS = 10
 MAX_REVIEW_TEXT_LENGTH = 200
 
-# Competitor matching filters
-MIN_COMPETITOR_REVIEWS = 20   # exclude competitors below this — ratings not statistically meaningful
-PRICE_TIER_TOLERANCE = 1      # keep competitors within ±N price levels of my own
-MIN_COMPETITORS_AFTER_FILTER = 3   # if filters strip below this, fall back to the unfiltered set
-
-# Sub-category vocabulary per parent category. Haiku picks one tag per business.
-# Keep lists short — too many options dilutes Haiku's accuracy.
-SUBCATEGORIES_BY_CATEGORY: dict[str, list[str]] = {
-    "restaurant": [
-        "north_indian", "south_indian", "chinese", "biryani", "fast_food",
-        "pure_veg_thali", "non_veg_grill", "multicuisine", "cafe_bakery", "general",
-    ],
-    "cafe": [
-        "coffee_shop", "bakery", "dessert_parlour", "chai_stall", "cafe_bistro", "general",
-    ],
-    "retail": [
-        "clothing", "electronics", "footwear", "home_goods", "general_store", "general",
-    ],
-    "grocery": ["supermarket", "kirana", "organic", "general"],
-    "pharmacy": ["chain", "independent", "general"],
-    "medical": ["clinic", "diagnostic", "specialist", "general"],
-    "manufacturing": ["general"],
-    "distributor": ["general"],
-}
-
 # Valid business categories
 VALID_CATEGORIES: set[str] = {
     "restaurant", "cafe", "retail", "grocery",
