@@ -21,7 +21,7 @@ _PLACE_FIELDS = [
     "geometry",
     "business_status",
     "formatted_address",
-    "photos",
+    "photo",   # singular — the API field is "photo", not "photos"
     # NOTE: "popular_times" is not available in any official Google Places API.
     # That data is shown in the Maps UI but is never exposed via an API field.
     # To get it, a third-party scraper (e.g. Apify populartimes actor) is needed.
@@ -111,7 +111,7 @@ def get_business_details(place_id: str) -> dict:
     geo = result.get("geometry", {}).get("location", {})
     # Google returns up to 10 photo references — count is a proxy for visual
     # engagement. Recency is not available via the API (no timestamps on photos).
-    photo_count = len(result.get("photos") or [])
+    photo_count = len(result.get("photos") or result.get("photo") or [])
     return {
         "name": result.get("name", ""),
         "rating": float(result.get("rating", 0.0)),
