@@ -24,7 +24,7 @@ const spaceMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'VyaparAI — Business Health Monitor',
+  title: 'Refloat — Business Health Monitor',
   description: 'AI-powered business health insights for Indian MSMEs',
 };
 

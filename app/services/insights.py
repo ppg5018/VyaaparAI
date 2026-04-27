@@ -8,7 +8,33 @@ from app.config import ANTHROPIC_API_KEY, CLAUDE_MODEL, MAX_TOKENS
 logger = logging.getLogger(__name__)
 
 
-def build_prompt(business_data: dict, scores: dict, pos_signals: dict) -> str:
+MIN_INSIGHTS = 3
+MAX_INSIGHTS = 6
+
+
+def insight_count(business_data: dict, pos_signals: dict) -> int:
+    """Decide how many insights to request based on available signal richness.
+
+    Why: a business with 50 reviews + full POS data deserves more, distinct
+    suggestions than one with 2 reviews and no POS data.
+    """
+    score = MIN_INSIGHTS
+    total_reviews = business_data.get("total_reviews", 0) or 0
+    if total_reviews >= 20:
+        score += 1
+    competitors = business_data.get("competitors") or []
+    if len(competitors) >= 3:
+        score += 1
+    pos_signal_keys = ("revenue_trend_pct", "slow_categories", "top_product", "aov_direction")
+    pos_present = sum(1 for k in pos_signal_keys if pos_signals.get(k))
+    if pos_present >= 2:
+        score += 1
+    if pos_present >= 4:
+        score += 1
+    return min(MAX_INSIGHTS, score)
+
+
+def build_prompt(business_data: dict, scores: dict, pos_signals: dict, count: int) -> str:
     """Assemble the full Claude prompt from business data, scores, and POS signals."""
     name = business_data.get("name", "Unknown Business")
     rating = business_data.get("rating", 0.0)
@@ -52,6 +78,8 @@ def build_prompt(business_data: dict, scores: dict, pos_signals: dict) -> str:
     top_product_str = top_product if top_product is not None else "No POS data available"
     aov_str = aov_direction if aov_direction is not None else "No POS data available"
 
+    insight_slots = ", ".join(['"..."'] * count)
+
     return f"""You are a business advisor for Indian MSME owners. Be specific, not generic.
 Always name specific products and competitors. Never say "some products" or
 "nearby competitors". Actions must cost under ₹2,000 and take under 3 hours.
@@ -72,11 +100,13 @@ Slow-moving categories: {slow_categories_str}
 Top product by revenue: {top_product_str}
 Average order value: {aov_str}
 
-Generate 3 insights and 1 action.
+Generate exactly {count} insights and 1 action.
 Each insight must:
-- Name a specific product, category, or competitor
-- Reference actual numbers from the data above
-- Be different from the other insights
+- Name a specific product, category, review theme, or competitor
+- Reference actual numbers from the data above (rating, review count, revenue %, AOV)
+- Cover a DIFFERENT signal from the other insights — do not repeat the same point
+- Mix sources: at least one from reviews, at least one from POS data (when available),
+  and at least one from competitors (when available)
 
 The action must:
 - Cost under ₹2,000
@@ -84,8 +114,9 @@ The action must:
 - Be doable this week
 - Be the single highest-impact thing to do
 
-Return ONLY valid JSON, no markdown, no preamble:
-{{"insights": ["...", "...", "..."], "action": "..."}}"""
+Return ONLY valid JSON, no markdown, no preamble. The "insights" array must contain
+exactly {count} strings:
+{{"insights": [{insight_slots}], "action": "..."}}"""
 
 
 def strip_markdown(text: str) -> str:
@@ -109,12 +140,14 @@ def _call_claude(prompt: str) -> str:
     return msg.content[0].text
 
 
-def _parse_and_validate(response_text: str) -> dict:
+def _parse_and_validate(response_text: str, expected_count: int) -> dict:
     """Parse and structurally validate Claude's JSON output."""
     cleaned = strip_markdown(response_text)
     result = json.loads(cleaned)
     assert "insights" in result and isinstance(result["insights"], list)
-    assert len(result["insights"]) == 3
+    assert len(result["insights"]) == expected_count, (
+        f"expected {expected_count} insights, got {len(result['insights'])}"
+    )
     assert "action" in result and isinstance(result["action"], str)
     assert all(isinstance(i, str) for i in result["insights"])
     return result
@@ -129,13 +162,14 @@ def generate_insights(business_data: dict, scores: dict, pos_signals: dict) -> d
         anthropic.AuthenticationError: caller must fix API key.
         RuntimeError: if both attempts fail to produce valid JSON.
     """
-    prompt = build_prompt(business_data, scores, pos_signals)
+    count = insight_count(business_data, pos_signals)
+    prompt = build_prompt(business_data, scores, pos_signals, count)
     response_text = None
 
     try:
         response_text = _call_claude(prompt)
         logger.debug("Claude response (attempt 1): %s", response_text)
-        return _parse_and_validate(response_text)
+        return _parse_and_validate(response_text, count)
     except (anthropic.RateLimitError, anthropic.AuthenticationError):
         raise
     except anthropic.APITimeoutError as exc:
@@ -147,15 +181,16 @@ def generate_insights(business_data: dict, scores: dict, pos_signals: dict) -> d
 
     stricter_prompt = (
         prompt
-        + "\n\nCRITICAL: Output must be ONLY the JSON object. "
-        "No text before or after. No markdown. Start with { and end with }."
+        + f"\n\nCRITICAL: Output must be ONLY the JSON object. "
+        f"No text before or after. No markdown. Start with {{ and end with }}. "
+        f"The insights array must contain exactly {count} strings."
     )
     response_text = None
 
     try:
         response_text = _call_claude(stricter_prompt)
         logger.debug("Claude response (attempt 2): %s", response_text)
-        return _parse_and_validate(response_text)
+        return _parse_and_validate(response_text, count)
     except (anthropic.RateLimitError, anthropic.AuthenticationError):
         raise
     except Exception as exc:

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Field } from '@/components/ui';
 import { useAuth } from '@/lib/auth-context';
+import { getBusinessByUser } from '@/lib/api';
 
 function Spinner() {
   return (
@@ -63,10 +64,17 @@ export default function LoginPage() {
       setLoading(false);
       return;
     }
-    // Check if this user has already onboarded on this device
-    const hasBusinessId = userId
-      ? !!localStorage.getItem(`vyapaar-business-id-${userId}`)
-      : false;
+    // Check backend (source of truth) — fall back to localStorage for legacy rows with NULL user_id
+    let hasBusinessId = false;
+    if (userId) {
+      const biz = await getBusinessByUser(userId);
+      if (biz) {
+        localStorage.setItem(`vyapaar-business-id-${userId}`, biz.business_id);
+        hasBusinessId = true;
+      } else {
+        hasBusinessId = !!localStorage.getItem(`vyapaar-business-id-${userId}`);
+      }
+    }
     router.push(hasBusinessId ? '/dashboard' : '/onboard/pos');
   };
 
@@ -81,7 +89,7 @@ export default function LoginPage() {
           Welcome back
         </h1>
         <p style={{ fontSize: 14, color: 'var(--text2)', margin: 0 }}>
-          Sign in to your VyaparAI account
+          Sign in to your Refloat account
         </p>
       </div>
 
@@ -158,6 +166,13 @@ export default function LoginPage() {
           <Link href="/signup" style={{ color: 'var(--gold)', textDecoration: 'none', fontWeight: 500 }}>
             Create one
           </Link>
+        </p>
+
+        <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--text3)', margin: 0, lineHeight: 1.6 }}>
+          By signing in you agree to our{' '}
+          <Link href="/terms" style={{ color: 'var(--text3)', textDecoration: 'underline' }}>Terms of Service</Link>
+          {' '}and{' '}
+          <Link href="/privacy" style={{ color: 'var(--text3)', textDecoration: 'underline' }}>Privacy Policy</Link>
         </p>
       </div>
     </div>

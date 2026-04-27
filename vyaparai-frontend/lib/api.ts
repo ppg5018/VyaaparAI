@@ -78,6 +78,7 @@ export async function onboardBusiness(data: {
   place_id?: string;
   category: string;
   owner_name: string;
+  user_id?: string;
 }): Promise<{ business_id: string; name: string; place_id: string; google_verified_name: string }> {
   const res = await fetch(`${BASE}/onboard`, {
     method: 'POST',
@@ -90,6 +91,17 @@ export async function onboardBusiness(data: {
   }
   if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+
+export async function getBusinessByUser(userId: string): Promise<{ business_id: string } | null> {
+  try {
+    const res = await fetch(`${BASE}/businesses/by-user/${encodeURIComponent(userId)}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    // Network / CORS / DNS failure — treat as "no result" so the caller falls back to localStorage
+    return null;
+  }
 }
 
 export async function generateReport(businessId: string, force = false): Promise<HealthReport> {

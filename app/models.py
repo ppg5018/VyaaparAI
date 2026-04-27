@@ -10,6 +10,7 @@ class OnboardRequest(BaseModel):
     place_id: Optional[str] = Field(None, min_length=10)
     category: str
     owner_name: str = Field(..., min_length=1, max_length=100)
+    user_id: Optional[str] = None
 
     @field_validator("place_id")
     @classmethod

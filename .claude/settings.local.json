@@ -28,7 +28,18 @@
       "Bash(curl -s -o /tmp/c1.json -w \"  HTTP %{http_code}, time %{time_total}s\\\\n\" -X POST \"http://localhost:8000/generate-report/ebbbca3c-88ea-46d1-9e03-5119912df3b0?force=true\" --max-time 60)",
       "WebFetch(domain:apify.com)",
       "Bash(:)",
-      "Bash(curl -s -o /tmp/r1.json -w \"HTTP %{http_code}, time %{time_total}s\\\\n\" -X POST \"http://localhost:8000/generate-report/ebbbca3c-88ea-46d1-9e03-5119912df3b0?force=true\" --max-time 180)"
+      "Bash(curl -s -o /tmp/r1.json -w \"HTTP %{http_code}, time %{time_total}s\\\\n\" -X POST \"http://localhost:8000/generate-report/ebbbca3c-88ea-46d1-9e03-5119912df3b0?force=true\" --max-time 180)",
+      "Skill(commit-commands:commit-push-pr)",
+      "Bash(brew install *)",
+      "Bash(brew list *)",
+      "Bash(grep -E '^\\(requirements\\\\.txt|render\\\\.yaml\\)$')",
+      "Bash(curl -sS -i -o - --max-time 15 \"https://vyaparai-api.onrender.com/\")",
+      "Bash(curl -sS -i -o - --max-time 15 \"https://vyaparai-api.onrender.com/search-places?q=test\")",
+      "Bash(curl -sS -i --max-time 30 \"https://vyaparai-api.onrender.com/\")",
+      "Bash(curl -sS -i --max-time 30 -H \"Origin: https://refloat.in\" \"https://vyaparai-api.onrender.com/search-places?q=test\")",
+      "Bash(curl -sS -i --max-time 30 -X OPTIONS -H \"Origin: https://refloat.in\" -H \"Access-Control-Request-Method: GET\" \"https://vyaparai-api.onrender.com/search-places?q=test\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8000/docs)",
+      "Bash(npm run *)"
     ]
   }
 }

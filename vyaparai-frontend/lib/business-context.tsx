@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useAuth } from './auth-context';
+import { getBusinessByUser } from './api';
 
 interface BusinessContextValue {
   businessId: string | null;
@@ -26,7 +27,7 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
   const [businessId, setBusinessIdState] = useState<string | null>(null);
   const [bizLoading, setBizLoading]      = useState(true);
 
-  // Re-read from localStorage once auth has resolved and user is known
+  // Resolve business: localStorage cache first, then backend (source of truth)
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
@@ -35,8 +36,27 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const stored = localStorage.getItem(storageKey(user.id));
-    setBusinessIdState(stored ?? null);
-    setBizLoading(false);
+    if (stored) {
+      setBusinessIdState(stored);
+      setBizLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setBizLoading(true);
+    getBusinessByUser(user.id)
+      .then((biz) => {
+        if (cancelled) return;
+        if (biz) {
+          localStorage.setItem(storageKey(user.id), biz.business_id);
+          setBusinessIdState(biz.business_id);
+        } else {
+          setBusinessIdState(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBizLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [authLoading, user?.id]);
 
   const setBusinessId = (id: string) => {

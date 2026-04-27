@@ -3,6 +3,16 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { getBusinessByUser } from '@/lib/api';
+
+async function resolveHasBusiness(userId: string): Promise<boolean> {
+  const biz = await getBusinessByUser(userId);
+  if (biz) {
+    localStorage.setItem(`vyapaar-business-id-${userId}`, biz.business_id);
+    return true;
+  }
+  return !!localStorage.getItem(`vyapaar-business-id-${userId}`);
+}
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -22,10 +32,10 @@ export default function AuthCallbackPage() {
         const userId = data.session?.user?.id;
         if (!userId) {
           // Listen briefly in case the session lands a moment later
-          const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+          const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
             if (session?.user?.id) {
               listener.subscription.unsubscribe();
-              const hasBiz = !!localStorage.getItem(`vyapaar-business-id-${session.user.id}`);
+              const hasBiz = await resolveHasBusiness(session.user.id);
               router.replace(hasBiz ? '/dashboard' : '/onboard/pos');
             }
           });
@@ -37,7 +47,7 @@ export default function AuthCallbackPage() {
           return;
         }
 
-        const hasBiz = !!localStorage.getItem(`vyapaar-business-id-${userId}`);
+        const hasBiz = await resolveHasBusiness(userId);
         router.replace(hasBiz ? '/dashboard' : '/onboard/pos');
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Sign-in failed.');
