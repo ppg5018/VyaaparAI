@@ -77,6 +77,32 @@ class CompetitorAnalysis(BaseModel):
     analyzed_count: int = 0
 
 
+class PosSignals(BaseModel):
+    """POS signals used by the dashboard. All fields are optional — null when no POS data."""
+
+    revenue_trend_pct: float | None = None
+    slow_categories: list[str] = []
+    top_product: str | None = None
+    aov_direction: str | None = None
+    repeat_rate_pct: float | None = None
+    repeat_rate_trend: float | None = None
+
+
+class WeeklyRevenue(BaseModel):
+    """One bar in the 8-week revenue chart."""
+
+    week: str   # e.g. "W1Apr"
+    rev: float
+
+
+class CategoryRevenue(BaseModel):
+    """One row in the revenue-by-category table."""
+
+    name: str
+    rev: float
+    pct: float
+
+
 class ReportResponse(BaseModel):
     """Response body for POST /generate-report/{business_id}."""
 
@@ -98,6 +124,9 @@ class ReportResponse(BaseModel):
     action: str
     dominant_complaint: str | None = None
     competitor_analysis: CompetitorAnalysis = CompetitorAnalysis()
+    pos_signals: PosSignals = PosSignals()
+    weekly_revenue: list[WeeklyRevenue] = []
+    revenue_by_category: list[CategoryRevenue] = []
     generated_at: str
 
 

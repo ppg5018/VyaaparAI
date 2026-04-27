@@ -1,0 +1,26 @@
+<h2>How should Next.js talk to the FastAPI backend?</h2>
+<p class="subtitle">This affects deployment, auth, and how API calls are made throughout the app</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Next.js API Routes as proxy (Recommended)</h3>
+      <p>Next.js has its own <code>/api/*</code> routes that forward calls to FastAPI. The browser never talks to FastAPI directly. Cleaner CORS, one deployment URL, easy to add auth middleware later.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Direct API calls from browser</h3>
+      <p>React components call <code>http://localhost:8000</code> directly. Simpler for local dev, but requires CORS config on FastAPI and exposes the backend URL to the browser. Fine for MVP.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Server-side only (Next.js Server Components)</h3>
+      <p>All FastAPI calls happen server-side in Next.js Server Components or <code>getServerSideProps</code>. Browser never touches FastAPI. Most secure, but more complex state management.</p>
+    </div>
+  </div>
+</div>

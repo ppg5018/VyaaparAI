@@ -3,7 +3,10 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
 
-from app.models import Competitor, CompetitorAnalysis, ReportResponse, Review, SubScores
+from app.models import (
+    CategoryRevenue, Competitor, CompetitorAnalysis, PosSignals, ReportResponse,
+    Review, SubScores, WeeklyRevenue,
+)
 from app.database import supabase
 from app.services import apify_reviews, competitor_analysis, google_places, health_score, insights, pos_pipeline, review_classifier
 from app.services.health_score import compute_velocity
@@ -177,6 +180,9 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         competitors=google_data.get("competitors", []),
     )
 
+    # 7c. Chart data for the dashboard (weekly revenue + revenue-by-category)
+    chart = pos_pipeline.chart_data(business_id, weeks=8)
+
     # 8. Build the response
     MAX_INSIGHT = 400
     MAX_ACTION  = 600
@@ -226,6 +232,16 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
             opportunities=comp_analysis.get("opportunities", []),
             analyzed_count=comp_analysis.get("analyzed_count", 0),
         ),
+        pos_signals=PosSignals(
+            revenue_trend_pct=signals.get("revenue_trend_pct"),
+            slow_categories=signals.get("slow_categories", []),
+            top_product=signals.get("top_product"),
+            aov_direction=signals.get("aov_direction"),
+            repeat_rate_pct=signals.get("repeat_rate_pct"),
+            repeat_rate_trend=signals.get("repeat_rate_trend"),
+        ),
+        weekly_revenue=[WeeklyRevenue(**w) for w in chart.get("weekly_revenue", [])],
+        revenue_by_category=[CategoryRevenue(**c) for c in chart.get("revenue_by_category", [])],
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
 

@@ -34,7 +34,20 @@ async def upload_pos(business_id: str, file: UploadFile = File(...)) -> UploadPO
             tmp.write(await file.read())
             tmp_path = tmp.name
 
-        # 4. Ingest
+        # 4. Wipe existing POS data for this business so the upload is a full replace,
+        # not an append. Otherwise categories from prior uploads (e.g. cafe + kirana
+        # + restaurant) all coexist and pollute the signals & Claude prompt.
+        try:
+            supabase.table("pos_records").delete().eq("business_id", business_id).execute()
+            logger.info("[upload-pos] business_id=%s cleared existing pos_records", business_id)
+        except Exception as exc:
+            logger.error(
+                "[upload-pos] business_id=%s failed to clear old pos_records: %s",
+                business_id, exc,
+            )
+            raise HTTPException(status_code=500, detail="Failed to clear existing POS data")
+
+        # 5. Ingest
         try:
             rows_inserted = pos_pipeline.ingest_pos_csv(tmp_path, business_id)
         except ValueError as exc:
@@ -59,6 +72,19 @@ async def upload_pos(business_id: str, file: UploadFile = File(...)) -> UploadPO
                 os.unlink(tmp_path)
             except Exception:
                 pass
+
+    # Always invalidate the report cache on upload — even 0-row uploads imply the
+    # user intends a refresh, and they may have meant to replace older data.
+    try:
+        supabase.table("health_scores").update({"report_payload": None}).eq(
+            "business_id", business_id
+        ).execute()
+        logger.info("[upload-pos] business_id=%s report cache invalidated", business_id)
+    except Exception as exc:
+        logger.warning(
+            "[upload-pos] business_id=%s cache invalidation failed (non-fatal): %s",
+            business_id, exc,
+        )
 
     logger.info("[upload-pos] business_id=%s rows_inserted=%d", business_id, rows_inserted)
     return UploadPOSResponse(

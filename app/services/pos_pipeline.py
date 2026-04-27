@@ -337,3 +337,59 @@ def pos_signals(business_id: str, days: int = 30, category: str = "") -> dict:
         repeat_rate_pct or 0, repeat_rate_trend,
     )
     return signals
+
+
+def chart_data(business_id: str, weeks: int = 8) -> dict:
+    """Return weekly revenue rollup + revenue-by-category for the dashboard.
+
+    Returns {"weekly_revenue": [...], "revenue_by_category": [...]}. Empty lists when
+    no POS data exists. Never raises.
+    """
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=weeks * 7)
+
+    try:
+        result = (
+            supabase.table("pos_records")
+            .select("date, product_category, revenue")
+            .eq("business_id", business_id)
+            .gte("date", cutoff.isoformat())
+            .execute()
+        )
+    except Exception as exc:
+        logger.warning("[chart_data] supabase query failed: %s", exc)
+        return {"weekly_revenue": [], "revenue_by_category": []}
+
+    if not result.data:
+        return {"weekly_revenue": [], "revenue_by_category": []}
+
+    df = pd.DataFrame(result.data)
+    df["date"] = pd.to_datetime(df["date"])
+    df["revenue"] = pd.to_numeric(df["revenue"], errors="coerce").fillna(0.0)
+
+    # Weekly revenue — last `weeks` weeks ending today.
+    weekly = []
+    for w in range(weeks - 1, -1, -1):
+        week_end = today - timedelta(days=w * 7)
+        week_start = week_end - timedelta(days=6)
+        mask = (df["date"] >= pd.Timestamp(week_start)) & (df["date"] <= pd.Timestamp(week_end))
+        rev = float(df.loc[mask, "revenue"].sum())
+        # Label like "W1Apr" — week-of-month + month abbreviation.
+        month = week_end.strftime("%b")
+        wom = (week_end.day - 1) // 7 + 1
+        weekly.append({"week": f"W{wom}{month}", "rev": rev})
+
+    # Revenue by category — over the full window.
+    by_cat = (
+        df.groupby("product_category")["revenue"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(8)
+    )
+    total = float(by_cat.sum()) or 1.0
+    categories = [
+        {"name": name, "rev": float(rev), "pct": round(float(rev) / total * 100, 1)}
+        for name, rev in by_cat.items()
+    ]
+
+    return {"weekly_revenue": weekly, "revenue_by_category": categories}

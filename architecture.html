@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1600">
+  <title>VyaparAI Module 1 — System Architecture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', system-ui, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      padding: 48px;
+      min-width: 1500px;
+      line-height: 1.4;
+    }
+
+    .diagram { max-width: 1440px; margin: 0 auto; }
+
+    /* ── HEADER ── */
+    .header {
+      text-align: center;
+      margin-bottom: 36px;
+      padding: 36px 40px;
+      background: linear-gradient(135deg, #161b22 0%, #1a2030 50%, #161b22 100%);
+      border: 1px solid #30363d;
+      border-radius: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    .header::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 30% 50%, rgba(88,166,255,0.04) 0%, transparent 60%),
+                  radial-gradient(ellipse at 70% 50%, rgba(163,113,247,0.04) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .header h1 { font-size: 30px; font-weight: 800; color: #f0f6fc; letter-spacing: -0.5px; }
+    .header .subtitle { margin-top: 8px; color: #8b949e; font-size: 14px; }
+    .header .badges { display: flex; gap: 8px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+    .badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; border: 1px solid; }
+
+    /* ── LAYER ── */
+    .layer { margin-bottom: 16px; }
+    .layer-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .layer-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 2px; padding: 3px 10px; border-radius: 4px; white-space: nowrap;
+    }
+    .layer-line { flex: 1; height: 1px; background: #21262d; }
+
+    /* ── CONNECTOR ── */
+    .connector {
+      display: flex; justify-content: center; align-items: center;
+      height: 36px; position: relative; margin: 4px 0;
+    }
+    .connector::before {
+      content: ''; position: absolute; left: 50%; top: 0; bottom: 0;
+      width: 2px; background: linear-gradient(to bottom, #21262d, #30363d);
+      transform: translateX(-50%);
+    }
+    .connector-arrow {
+      background: #21262d; border: 1px solid #30363d; border-radius: 50%;
+      width: 26px; height: 26px; display: flex; align-items: center;
+      justify-content: center; font-size: 13px; position: relative; z-index: 1; color: #58a6ff;
+    }
+
+    /* ── CARDS ── */
+    .card {
+      background: #161b22; border: 1px solid #30363d;
+      border-radius: 12px; padding: 16px; position: relative;
+    }
+    .card-header {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #21262d;
+    }
+    .card-icon {
+      width: 28px; height: 28px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+    }
+    .card-title { font-size: 13px; font-weight: 600; color: #e6edf3; }
+    .card-subtitle { font-size: 11px; color: #8b949e; }
+
+    /* ── PIPELINE ── */
+    .pipeline { display: flex; align-items: stretch; }
+    .pipeline-step {
+      flex: 1; min-width: 120px; background: #161b22; border: 1px solid #30363d;
+      padding: 14px 10px; position: relative; text-align: center;
+    }
+    .pipeline-step:first-child { border-radius: 10px 0 0 10px; }
+    .pipeline-step:last-child  { border-radius: 0 10px 10px 0; }
+    .pipeline-step:not(:last-child)::after {
+      content: '▶'; position: absolute; right: -9px; top: 50%;
+      transform: translateY(-50%); color: #484f58; font-size: 11px; z-index: 2;
+    }
+    .pipeline-step:not(:first-child) { border-left: 0; }
+    .step-num {
+      display: inline-flex; width: 20px; height: 20px; border-radius: 50%;
+      font-size: 10px; font-weight: 700; align-items: center; justify-content: center;
+      margin-bottom: 6px;
+    }
+    .step-title { font-size: 11px; font-weight: 600; color: #e6edf3; margin-bottom: 4px; }
+    .step-detail { font-size: 10px; color: #8b949e; line-height: 1.35; }
+
+    /* ── METHODS ── */
+    .method {
+      display: inline-block; padding: 1px 5px; border-radius: 3px;
+      font-size: 10px; font-weight: 700; font-family: monospace; margin-right: 3px;
+    }
+    .post { background: #14532d; color: #4ade80; }
+    .get  { background: #0c3547; color: #79c0ff; }
+
+    /* ── FN LIST ── */
+    .fn-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+    .fn-item { display: flex; align-items: flex-start; gap: 5px; font-size: 11px; color: #8b949e; }
+    .fn-item::before { content: '›'; color: #484f58; flex-shrink: 0; margin-top: 1px; }
+    .fn-name { font-family: 'SF Mono', 'Fira Code', monospace; color: #79c0ff; }
+
+    /* ── DB TABLE ── */
+    .db-table { background: #161b22; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; }
+    .db-header { padding: 10px 14px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .db-col {
+      padding: 5px 14px; font-size: 11px; border-top: 1px solid #21262d;
+      display: flex; justify-content: space-between; font-family: 'SF Mono', monospace;
+    }
+    .pk { color: #e3b341; }
+    .fk { color: #79c0ff; }
+    .type { color: #8b949e; }
+
+    /* ── CONFIG ROW ── */
+    .cfg { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #21262d; font-size: 11px; }
+    .cfg:last-child { border-bottom: none; }
+    .cfg-k { font-family: monospace; color: #e3b341; }
+    .cfg-v { color: #79c0ff; font-family: monospace; font-size: 10px; }
+
+    /* ── ACCENT BORDERS ── */
+    .a-blue   { border-left: 3px solid #58a6ff; }
+    .a-purple { border-left: 3px solid #a855f7; }
+    .a-green  { border-left: 3px solid #4ade80; }
+    .a-amber  { border-left: 3px solid #fbbf24; }
+    .a-orange { border-left: 3px solid #fb923c; }
+    .a-teal   { border-left: 3px solid #2dd4bf; }
+    .a-pink   { border-left: 3px solid #f472b6; }
+    .a-red    { border-left: 3px solid #f87171; }
+    .a-gray   { border-left: 3px solid #6b7280; }
+    .a-indigo { border-left: 3px solid #818cf8; }
+
+    /* ── ICON BG ── */
+    .ib-blue   { background: #082f49; }
+    .ib-purple { background: #2e1065; }
+    .ib-green  { background: #052e16; }
+    .ib-amber  { background: #3d1f00; }
+    .ib-orange { background: #431407; }
+    .ib-teal   { background: #042f2e; }
+    .ib-pink   { background: #500724; }
+    .ib-red    { background: #450a0a; }
+    .ib-gray   { background: #1c1c2a; }
+    .ib-indigo { background: #1e1b4b; }
+
+    /* ── LAYER LABEL COLORS ── */
+    .lc-client   { background: #0c2d6b; color: #79c0ff; }
+    .lc-gateway  { background: #271052; color: #d2a8ff; }
+    .lc-routes   { background: #1a3a1a; color: #4ade80; }
+    .lc-pipeline { background: #2d1200; color: #ffa657; }
+    .lc-services { background: #053d2a; color: #56d364; }
+    .lc-scoring  { background: #0d2137; color: #58a6ff; }
+    .lc-external { background: #402800; color: #f0a842; }
+    .lc-database { background: #1a2d1a; color: #56d364; }
+    .lc-infra    { background: #1c1c2a; color: #aaa; }
+    .lc-devtools { background: #2a1228; color: #f8a6c9; }
+
+    /* ── API CARD ── */
+    .api-card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 14px; }
+    .api-model { font-size: 10px; font-family: monospace; background: #21262d; border: 1px solid #30363d; padding: 2px 8px; border-radius: 4px; color: #8b949e; margin-top: 4px; display: inline-block; }
+
+    /* ── HIGHLIGHT CARD (report.py) ── */
+    .highlight-card {
+      background: #161b22; border: 2px solid #f97316;
+      box-shadow: 0 0 16px rgba(249,115,22,0.15); border-radius: 12px; padding: 16px;
+    }
+
+    /* ── SCORE BAR ── */
+    .score-bar { height: 36px; border-radius: 8px; overflow: hidden; display: flex; margin-bottom: 16px; }
+    .sb-blue   { flex: 40; background: linear-gradient(135deg, #1d4ed8, #3b82f6); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff; }
+    .sb-amber  { flex: 25; background: linear-gradient(135deg, #b45309, #f59e0b); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff; }
+    .sb-green  { flex: 35; background: linear-gradient(135deg, #047857, #10b981); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff; }
+
+    /* ── SUBSCORE ROW ── */
+    .ss-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #21262d; font-size: 11px; }
+    .ss-row:last-child { border-bottom: none; }
+    .ss-label { color: #e6edf3; }
+    .ss-pts   { color: #4ade80; font-family: monospace; }
+    .ss-note  { padding: 3px 0 7px; font-size: 10px; color: #8b949e; border-bottom: 1px solid #21262d; }
+  </style>
+</head>
+<body>
+<div class="diagram">
+
+  <!-- ════════════════════════════════════════════════════
+       HEADER
+  ════════════════════════════════════════════════════ -->
+  <div class="header">
+    <h1>VyaparAI Module 1 — System Architecture</h1>
+    <p class="subtitle">Business Health Score Engine for Indian MSMEs &nbsp;·&nbsp; FastAPI + Supabase + Claude AI + Google Places + Apify</p>
+    <div class="badges">
+      <span class="badge" style="background:#052e16;color:#4ade80;border-color:#14532d;">Python 3.11</span>
+      <span class="badge" style="background:#052e16;color:#4ade80;border-color:#14532d;">FastAPI + Uvicorn</span>
+      <span class="badge" style="background:#082f49;color:#38bdf8;border-color:#0c4a6e;">Supabase (PostgreSQL)</span>
+      <span class="badge" style="background:#1e1b4b;color:#a5b4fc;border-color:#3730a3;">Claude Sonnet 4-2025</span>
+      <span class="badge" style="background:#500724;color:#f9a8d4;border-color:#831843;">Claude Haiku 4.5</span>
+      <span class="badge" style="background:#431407;color:#fbbf24;border-color:#78350f;">Google Places API</span>
+      <span class="badge" style="background:#2e1065;color:#c084fc;border-color:#4c1d95;">Apify Scraper</span>
+      <span class="badge" style="background:#450a0a;color:#f87171;border-color:#7f1d1d;">No Auth</span>
+      <span class="badge" style="background:#042f2e;color:#2dd4bf;border-color:#115e59;">No Cache Layer</span>
+      <span class="badge" style="background:#0d1117;color:#8b949e;border-color:#30363d;">MVP Phase</span>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════
+       01 · CLIENT
+  ════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-label lc-client">01 · Client</span>
+      <div class="layer-line"></div>
+    </div>
+    <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:18px 24px;">
+      <div style="display:flex; align-items:center; gap:16px;">
+        <div style="font-size:32px; line-height:1;">🌐</div>
+        <div>
+          <div style="font-size:15px; font-weight:700; color:#e6edf3;">Browser / API Client</div>
+          <div style="font-size:12px; color:#8b949e; margin-top:3px;">Swagger UI &nbsp;·&nbsp; curl &nbsp;·&nbsp; Postman &nbsp;·&nbsp; Python requests</div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="text-align:center; padding:8px 18px; background:#082f49; border:1px solid #0c4a6e; border-radius:8px;">
+          <div style="font-size:12px; color:#38bdf8; font-weight:700;">HTTP / REST</div>
+          <div style="font-size:10px; color:#8b949e; margin-top:2px;">JSON &nbsp;·&nbsp; localhost:8000</div>
+        </div>
+        <div style="color:#484f58; font-size:22px; font-weight:300;">→</div>
+        <div style="text-align:center; padding:8px 18px; background:#0c2d6b; border:1px solid #1d4ed8; border-radius:8px;">
+          <div style="font-size:12px; color:#79c0ff; font-weight:700;">FastAPI Application</div>
+          <div style="font-size:10px; color:#8b949e; margin-top:2px;">uvicorn app.main:app --reload</div>
+        </div>
+        <div style="text-align:center; padding:8px 14px; background:#161b22; border:1px solid #30363d; border-radius:8px;">
+          <div style="font-size:10px; color:#8b949e;">Swagger UI</div>
+          <div style="font-size:11px; color:#58a6ff; font-family:monospace;">localhost:8000/docs</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-arrow">↓</div></div>
+
+  <!-- ════════════════════════════════════════════════════
+       02 · FASTAPI APPLICATION CORE
+  ════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-label lc-gateway">02 · FastAPI Application Core &nbsp;—&nbsp; app/main.py</span>
+      <div class="layer-line"></div>
+    </div>
+    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:12px;">
+
+      <div class="card a-purple">
+        <div class="card-header">
+          <div class="card-icon ib-purple">🔗</div>
+          <div>
+            <div class="card-title">create_app()</div>
+            <div class="card-subtitle">FastAPI factory function</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span>FastAPI(title=<span class="fn-name">"VyaparAI Module 1"</span>, version=<span class="fn-name">"0.1.0"</span>)</span></li>
+          <li class="fn-item"><span>Registers 5 APIRouters via <span class="fn-name">include_router()</span></span></li>
+          <li class="fn-item"><span>Calls <span class="fn-name">setup_logging()</span> on import</span></li>
+          <li class="fn-item"><span>Module-level <span class="fn-name">app = create_app()</span></span></li>
+        </ul>
+      </div>
+
+      <div class="card a-blue">
+        <div class="card-header">
+          <div class="card-icon ib-blue">🛡️</div>
+          <div>
+            <div class="card-title">CORS Middleware</div>
+            <div class="card-subtitle">CORSMiddleware</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span>Origins from env <span class="fn-name">ALLOWED_ORIGINS</span></span></li>
+          <li class="fn-item"><span>Default: <span class="fn-name">["*"]</span> when env unset (dev)</span></li>
+          <li class="fn-item"><span>allow_methods: <span class="fn-name">["*"]</span></span></li>
+          <li class="fn-item"><span>allow_headers: <span class="fn-name">["*"]</span></span></li>
+        </ul>
+      </div>
+
+      <div class="card a-red">
+        <div class="card-header">
+          <div class="card-icon ib-red">🚨</div>
+          <div>
+            <div class="card-title">Global Exception Handler</div>
+            <div class="card-subtitle">unhandled_exception_handler()</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span>Catches ALL unhandled exceptions</span></li>
+          <li class="fn-item"><span>Returns CORS-safe <span class="fn-name">JSONResponse(500)</span></span></li>
+          <li class="fn-item"><span>Logs full traceback to <span class="fn-name">module1.log</span></span></li>
+          <li class="fn-item"><span>Header: <span class="fn-name">Access-Control-Allow-Origin: *</span></span></li>
+        </ul>
+      </div>
+
+      <div class="card a-teal">
+        <div class="card-header">
+          <div class="card-icon ib-teal">💚</div>
+          <div>
+            <div class="card-title">System Endpoints</div>
+            <div class="card-subtitle">Built-in utility routes</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span><span class="method get">GET</span> <span class="fn-name">/</span> → {"status":"VyaparAI Module 1 running"}</span></li>
+          <li class="fn-item"><span><span class="method get">GET</span> <span class="fn-name">/health</span> → {"status":"ok"}</span></li>
+          <li class="fn-item"><span>No auth, no DB — instant liveness check</span></li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-arrow">↓</div></div>
+
+  <!-- ════════════════════════════════════════════════════
+       03 · API ROUTES
+  ════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-label lc-routes">03 · API Routes &nbsp;—&nbsp; app/api/</span>
+      <div class="layer-line"></div>
+    </div>
+    <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:12px;">
+
+      <!-- onboard -->
+      <div class="card a-green">
+        <div class="card-header">
+          <div class="card-icon ib-green">🏪</div>
+          <div>
+            <div class="card-title">onboard.py</div>
+            <div class="card-subtitle"><span class="method post">POST</span>/onboard</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span>Body: <span class="fn-name">OnboardRequest</span></span></li>
+          <li class="fn-item"><span>Validate category against <span class="fn-name">VALID_CATEGORIES</span></span></li>
+          <li class="fn-item"><span>INSERT → <span class="fn-name">businesses</span></span></li>
+          <li class="fn-item"><span>409 on duplicate <span class="fn-name">place_id</span></span></li>
+          <li class="fn-item"><span>Returns new <span class="fn-name">business_id</span> (UUID)</span></li>
+        </ul>
+      </div>
+
+      <!-- upload-pos -->
+      <div class="card a-amber">
+        <div class="card-header">
+          <div class="card-icon ib-amber">📊</div>
+          <div>
+            <div class="card-title">pos.py</div>
+            <div class="card-subtitle"><span class="method post">POST</span>/upload-pos/{id}</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span>Multipart <span class="fn-name">UploadFile</span> (CSV)</span></li>
+          <li class="fn-item"><span>Verify business_id exists</span></li>
+          <li class="fn-item"><span>Save to tmp path</span></li>
+          <li class="fn-item"><span>Call <span class="fn-name">ingest_pos_csv()</span></span></li>
+          <li class="fn-item"><span>Returns rows_inserted count</span></li>
+        </ul>
+      </div>
+
+      <!-- generate-report (highlighted) -->
+      <div class="highlight-card">
+        <div class="card-header" style="border-bottom-color:#2d1a0a;">
+          <div class="card-icon ib-orange">⚡</div>
+          <div>
+            <div class="card-title" style="color:#fb923c;">report.py</div>
+            <div class="card-subtitle"><span class="method post">POST</span>/generate-report/{id}</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span>Full 9-step scoring pipeline</span></li>
+          <li class="fn-item"><span>Query param: <span class="fn-name">force=false</span></span></li>
+          <li class="fn-item"><span>24h report cache via <span class="fn-name">report_payload</span></span></li>
+          <li class="fn-item"><span>Returns <span class="fn-name">ReportResponse</span></span></li>
+          <li class="fn-item"><span>502 on Google failure</span></li>
+        </ul>
+        <div style="margin-top:10px; text-align:center; font-size:10px; color:#f97316; font-weight:700; letter-spacing:1px;">★ MAIN PIPELINE ★</div>
+      </div>
+
+      <!-- history -->
+      <div class="card a-blue">
+        <div class="card-header">
+          <div class="card-icon ib-blue">📈</div>
+          <div>
+            <div class="card-title">history.py</div>
+            <div class="card-subtitle"><span class="method get">GET</span>/history/{id}</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span>SELECT * FROM <span class="fn-name">health_scores</span></span></li>
+          <li class="fn-item"><span>WHERE business_id = ?</span></li>
+          <li class="fn-item"><span>ORDER BY <span class="fn-name">created_at DESC</span></span></li>
+          <li class="fn-item"><span>Returns list of past scores</span></li>
+        </ul>
+      </div>
+
+      <!-- actions -->
+      <div class="card a-pink">
+        <div class="card-header">
+          <div class="card-icon ib-pink">✅</div>
+          <div>
+            <div class="card-title">actions.py</div>
+            <div class="card-subtitle"><span class="method get">GET</span>/actions/{id}</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span>Fetch latest <span class="fn-name">action</span> field</span></li>
+          <li class="fn-item"><span>From <span class="fn-name">health_scores</span> (latest row)</span></li>
+          <li class="fn-item"><span>Returns the single highest-impact action string</span></li>
+          <li class="fn-item"><span>Budget: ₹2,000 · Time: 3h</span></li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-arrow">↓</div></div>
+
+  <!-- ════════════════════════════════════════════════════
+       04 · /generate-report PIPELINE
+  ════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-label lc-pipeline">04 · /generate-report Pipeline — 9 Steps &nbsp;(app/api/report.py)</span>
+      <div class="layer-line"></div>
+    </div>
+    <div class="pipeline">
+
+      <div class="pipeline-step" style="background:#1a1000;">
+        <div class="step-num" style="background:#2d1a00;color:#ffa657;">1</div>
+        <div class="step-title">Cache Check</div>
+        <div class="step-detail">Query health_scores &lt;24h old. Return cached unless force=True</div>
+      </div>
+
+      <div class="pipeline-step" style="background:#0c1a2e;">
+        <div class="step-num" style="background:#0c2d6b;color:#79c0ff;">2</div>
+        <div class="step-title">Biz Lookup</div>
+        <div class="step-detail">SELECT * FROM businesses WHERE id=? → 404 if not found</div>
+      </div>
+
+      <div class="pipeline-step" style="background:#1a1000;">
+        <div class="step-num" style="background:#2d1a00;color:#ffa657;">3</div>
+        <div class="step-title">Google Places</div>
+        <div class="step-detail">fetch_all_data(place_id, category) → rating, 5 reviews, competitors. Skip if manual_ prefix</div>
+      </div>
+
+      <div class="pipeline-step" style="background:#160a2e;">
+        <div class="step-num" style="background:#2e1065;color:#d2a8ff;">4</div>
+        <div class="step-title">Apify Augment</div>
+        <div class="step-detail">get_reviews(max=50) — bypasses Google 5-review cap. Non-fatal on failure</div>
+      </div>
+
+      <div class="pipeline-step" style="background:#001a0f;">
+        <div class="step-num" style="background:#053d2a;color:#56d364;">5</div>
+        <div class="step-title">POS Signals</div>
+        <div class="step-detail">pos_signals(biz_id, days=30) → revenue_trend, slow_cats, aov, repeat_rate. Never raises</div>
+      </div>
+
+      <div class="pipeline-step" style="background:#160a2e;">
+        <div class="step-num" style="background:#2e1065;color:#d2a8ff;">6</div>
+        <div class="step-title">Classify Reviews</div>
+        <div class="step-detail">classify_reviews() via Haiku → sentiment 1–5 + dominant_complaint topic. Non-fatal</div>
+      </div>
+
+      <div class="pipeline-step" style="background:#0c1a2e;">
+        <div class="step-num" style="background:#0c2d6b;color:#79c0ff;">7</div>
+        <div class="step-title">Sub-scores</div>
+        <div class="step-detail">review_score() + competitor_score() + pos_score() → final_score + band (healthy/watch/at_risk)</div>
+      </div>
+
+      <div class="pipeline-step" style="background:#1a1000;">
+        <div class="step-num" style="background:#2d1a00;color:#ffa657;">8</div>
+        <div class="step-title">Insights</div>
+        <div class="step-detail">generate_insights() via Claude Sonnet → 3–6 insights + 1 action. Retry ×1 on JSON fail</div>
+      </div>
+
+      <div class="pipeline-step" style="background:#001a0f;">
+        <div class="step-num" style="background:#053d2a;color:#56d364;">9</div>
+        <div class="step-title">Persist</div>
+        <div class="step-detail">INSERT INTO health_scores (scores, insights, action, report_payload). Non-fatal on fail</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-arrow">↓</div></div>
+
+  <!-- ════════════════════════════════════════════════════
+       05 · SERVICES LAYER
+  ════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-label lc-services">05 · Services Layer &nbsp;—&nbsp; app/services/ &nbsp;(7 modules)</span>
+      <div class="layer-line"></div>
+    </div>
+    <div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:10px;">
+
+      <!-- google_places.py -->
+      <div class="card a-amber" style="font-size:11px;">
+        <div class="card-header" style="margin-bottom:8px; padding-bottom:8px;">
+          <div class="card-icon ib-amber" style="width:24px;height:24px;font-size:13px;">📍</div>
+          <div>
+            <div class="card-title" style="font-size:12px;">google_places.py</div>
+            <div class="card-subtitle">Places data fetch</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span class="fn-name">fetch_all_data()</span></li>
+          <li class="fn-item"><span class="fn-name">get_place_details()</span></li>
+          <li class="fn-item"><span class="fn-name">get_competitors()</span></li>
+          <li class="fn-item"><span class="fn-name">parse_reviews()</span></li>
+        </ul>
+        <div style="margin-top:8px; padding:3px 6px; background:#3d1f00; border-radius:4px; font-size:10px; color:#fbbf24; text-align:center;">→ Google Places API</div>
+      </div>
+
+      <!-- apify_reviews.py -->
+      <div class="card a-purple" style="font-size:11px;">
+        <div class="card-header" style="margin-bottom:8px; padding-bottom:8px;">
+          <div class="card-icon ib-purple" style="width:24px;height:24px;font-size:13px;">🕷️</div>
+          <div>
+            <div class="card-title" style="font-size:12px;">apify_reviews.py</div>
+            <div class="card-subtitle">Review scraping</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span class="fn-name">get_reviews()</span></li>
+          <li class="fn-item"><span class="fn-name">parse_posted_at()</span></li>
+          <li class="fn-item"><span>Cache TTL: 7d own</span></li>
+          <li class="fn-item"><span>30d competitor</span></li>
+        </ul>
+        <div style="margin-top:8px; padding:3px 6px; background:#2e1065; border-radius:4px; font-size:10px; color:#c084fc; text-align:center;">→ Apify Actor</div>
+      </div>
+
+      <!-- review_classifier.py -->
+      <div class="card a-pink" style="font-size:11px;">
+        <div class="card-header" style="margin-bottom:8px; padding-bottom:8px;">
+          <div class="card-icon ib-pink" style="width:24px;height:24px;font-size:13px;">🏷️</div>
+          <div>
+            <div class="card-title" style="font-size:12px;">review_classifier.py</div>
+            <div class="card-subtitle">Sentiment analysis</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span class="fn-name">classify_reviews()</span></li>
+          <li class="fn-item"><span class="fn-name">dominant_complaint()</span></li>
+          <li class="fn-item"><span>Sentiment score 1–5</span></li>
+          <li class="fn-item"><span>Batch ≤50 reviews</span></li>
+        </ul>
+        <div style="margin-top:8px; padding:3px 6px; background:#500724; border-radius:4px; font-size:10px; color:#f472b6; text-align:center;">→ Claude Haiku 4.5</div>
+      </div>
+
+      <!-- health_score.py -->
+      <div class="card a-blue" style="font-size:11px;">
+        <div class="card-header" style="margin-bottom:8px; padding-bottom:8px;">
+          <div class="card-icon ib-blue" style="width:24px;height:24px;font-size:13px;">💯</div>
+          <div>
+            <div class="card-title" style="font-size:12px;">health_score.py</div>
+            <div class="card-subtitle">Score engine</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span class="fn-name">review_score()</span></li>
+          <li class="fn-item"><span class="fn-name">competitor_score()</span></li>
+          <li class="fn-item"><span class="fn-name">pos_score()</span></li>
+          <li class="fn-item"><span class="fn-name">calculate_health_score()</span></li>
+          <li class="fn-item"><span class="fn-name">compute_velocity()</span></li>
+        </ul>
+        <div style="margin-top:8px; padding:3px 6px; background:#082f49; border-radius:4px; font-size:10px; color:#38bdf8; text-align:center;">Pure Python · No ext deps</div>
+      </div>
+
+      <!-- pos_pipeline.py -->
+      <div class="card a-green" style="font-size:11px;">
+        <div class="card-header" style="margin-bottom:8px; padding-bottom:8px;">
+          <div class="card-icon ib-green" style="width:24px;height:24px;font-size:13px;">📦</div>
+          <div>
+            <div class="card-title" style="font-size:12px;">pos_pipeline.py</div>
+            <div class="card-subtitle">POS data engine</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span class="fn-name">ingest_pos_csv()</span></li>
+          <li class="fn-item"><span class="fn-name">pos_signals()</span></li>
+          <li class="fn-item"><span>Pandas DataFrame</span></li>
+          <li class="fn-item"><span>Dedup (date, category)</span></li>
+          <li class="fn-item"><span>Batch size: 500</span></li>
+        </ul>
+        <div style="margin-top:8px; padding:3px 6px; background:#052e16; border-radius:4px; font-size:10px; color:#4ade80; text-align:center;">→ Supabase pos_records</div>
+      </div>
+
+      <!-- insights.py -->
+      <div class="card a-orange" style="font-size:11px;">
+        <div class="card-header" style="margin-bottom:8px; padding-bottom:8px;">
+          <div class="card-icon ib-orange" style="width:24px;height:24px;font-size:13px;">💡</div>
+          <div>
+            <div class="card-title" style="font-size:12px;">insights.py</div>
+            <div class="card-subtitle">AI insight gen</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span class="fn-name">generate_insights()</span></li>
+          <li class="fn-item"><span class="fn-name">build_prompt()</span></li>
+          <li class="fn-item"><span class="fn-name">insight_count()</span></li>
+          <li class="fn-item"><span class="fn-name">strip_markdown()</span></li>
+          <li class="fn-item"><span>Retry ×1 on JSON fail</span></li>
+        </ul>
+        <div style="margin-top:8px; padding:3px 6px; background:#431407; border-radius:4px; font-size:10px; color:#fb923c; text-align:center;">→ Claude Sonnet 4-2025</div>
+      </div>
+
+      <!-- competitor_analysis.py -->
+      <div class="card a-teal" style="font-size:11px;">
+        <div class="card-header" style="margin-bottom:8px; padding-bottom:8px;">
+          <div class="card-icon ib-teal" style="width:24px;height:24px;font-size:13px;">🏆</div>
+          <div>
+            <div class="card-title" style="font-size:12px;">competitor_analysis.py</div>
+            <div class="card-subtitle">Competitor intel</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span class="fn-name">analyze_competitors()</span></li>
+          <li class="fn-item"><span>Themes extraction</span></li>
+          <li class="fn-item"><span>Opportunities list</span></li>
+          <li class="fn-item"><span>analyzed_count</span></li>
+          <li class="fn-item"><span>Non-fatal on failure</span></li>
+        </ul>
+        <div style="margin-top:8px; padding:3px 6px; background:#042f2e; border-radius:4px; font-size:10px; color:#2dd4bf; text-align:center;">Google data → CompetitorAnalysis</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-arrow">↓</div></div>
+
+  <!-- ════════════════════════════════════════════════════
+       06 · HEALTH SCORE ENGINE
+  ════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-label lc-scoring">06 · Health Score Engine &nbsp;—&nbsp; app/services/health_score.py</span>
+      <div class="layer-line"></div>
+    </div>
+
+    <!-- formula overview -->
+    <div class="card" style="margin-bottom:12px; padding:22px 28px;">
+      <div style="text-align:center; font-size:17px; font-weight:800; color:#58a6ff; margin-bottom:18px; font-family:'SF Mono',monospace; letter-spacing:-0.3px;">
+        final_score &nbsp;=&nbsp; review_score × 0.40 &nbsp;+&nbsp; competitor_score × 0.25 &nbsp;+&nbsp; pos_score × 0.35
+      </div>
+      <div class="score-bar">
+        <div class="sb-blue">Reviews &nbsp;·&nbsp; 40%</div>
+        <div class="sb-amber">Competitors &nbsp;·&nbsp; 25%</div>
+        <div class="sb-green">POS Sales &nbsp;·&nbsp; 35%</div>
+      </div>
+      <div style="display:flex; gap:12px; justify-content:center;">
+        <div style="padding:6px 18px; background:#052e16; border:1px solid #14532d; border-radius:8px; font-size:13px; font-weight:700; color:#4ade80;">🟢 Healthy &nbsp;≥ 80</div>
+        <div style="padding:6px 18px; background:#422006; border:1px solid #78350f; border-radius:8px; font-size:13px; font-weight:700; color:#fbbf24;">🟡 Watch &nbsp;60 – 79</div>
+        <div style="padding:6px 18px; background:#450a0a; border:1px solid #7f1d1d; border-radius:8px; font-size:13px; font-weight:700; color:#f87171;">🔴 At Risk &nbsp;&lt; 60</div>
+      </div>
+    </div>
+
+    <!-- three sub-score cards -->
+    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px;">
+
+      <!-- review_score -->
+      <div class="card a-blue">
+        <div class="card-header">
+          <div class="card-icon ib-blue">⭐</div>
+          <div>
+            <div class="card-title">review_score( ) → 0–100</div>
+            <div class="card-subtitle">Quality · Velocity · Sentiment trend</div>
+          </div>
+        </div>
+        <div class="ss-row"><span class="ss-label">Quality Points</span><span class="ss-pts">0 – 55 pts</span></div>
+        <div class="ss-note">((rating − 1) / 4.0) × 55 &nbsp;·&nbsp; Normalised within actual [1–5] Google scale. 1★ → ~0 pts.</div>
+        <div class="ss-row"><span class="ss-label">Velocity / Volume Points</span><span class="ss-pts">0 – 25 pts</span></div>
+        <div class="ss-note">If Apify data: reviews/month over 6m window via compute_velocity(). Full marks at 8/month.<br>Fallback (raw Google): log₁₀(total_reviews) × 10</div>
+        <div class="ss-row"><span class="ss-label">Sentiment Trend Points</span><span class="ss-pts">0 – 20 pts</span></div>
+        <div style="padding:3px 0 0; font-size:10px; color:#8b949e;">
+          If classified: Claude Haiku sentiment_avg / 5 × 20 (catches polite 4★ with negative text).<br>
+          Fallback: star_avg / 5 × 20 over last 50 reviews.
+        </div>
+      </div>
+
+      <!-- competitor_score -->
+      <div class="card a-amber">
+        <div class="card-header">
+          <div class="card-icon ib-amber">🏁</div>
+          <div>
+            <div class="card-title">competitor_score( ) → 0–100</div>
+            <div class="card-subtitle">vs. nearby businesses within 800m</div>
+          </div>
+        </div>
+        <div style="font-size:13px; font-family:monospace; color:#fbbf24; text-align:center; padding:12px; background:#1a1200; border-radius:6px; margin-bottom:12px; border:1px solid #422006;">
+          60 + (my_rating − mean_competitor) × 30
+        </div>
+        <div style="font-size:11px;">
+          <div class="ss-row"><span class="ss-label">Clamped to</span><span class="ss-pts">[0, 100]</span></div>
+          <div class="ss-row"><span class="ss-label">No competitors found</span><span style="color:#fbbf24; font-family:monospace;">65 (neutral)</span></div>
+          <div class="ss-row"><span class="ss-label">Max competitors</span><span style="color:#fbbf24; font-family:monospace;">10 within 800m</span></div>
+          <div class="ss-row" style="border:none; padding-top:8px;"><span style="color:#8b949e; font-size:10px;">Example: my 4.5★ vs avg 4.0★ → 60 + (0.5 × 30) = 75</span></div>
+        </div>
+      </div>
+
+      <!-- pos_score -->
+      <div class="card a-green">
+        <div class="card-header">
+          <div class="card-icon ib-green">💹</div>
+          <div>
+            <div class="card-title">pos_score( ) → 0–100</div>
+            <div class="card-subtitle">4 POS signals · category-aware thresholds</div>
+          </div>
+        </div>
+        <div class="ss-row"><span class="ss-label">Revenue Trend</span><span class="ss-pts">0 – 40 pts</span></div>
+        <div class="ss-note">Category-specific bands. Restaurant: floor −30% → full +15%. Retail: floor −40% → full +20%. No data → neutral 50.</div>
+        <div class="ss-row"><span class="ss-label">Inventory Health</span><span class="ss-pts">0 – 25 pts</span></div>
+        <div class="ss-note">Slow categories: 0 slow → 25, 1 slow → 17, 2 slow → 8, 3+ → 0. Min ₹50/day to qualify.</div>
+        <div class="ss-row"><span class="ss-label">AOV Direction</span><span class="ss-pts">0 – 15 pts</span></div>
+        <div class="ss-note">rising → 15, stable → 9, falling → 4. Threshold: ±5%.</div>
+        <div class="ss-row"><span class="ss-label">Repeat Customer Rate Trend</span><span class="ss-pts">0 – 20 pts</span></div>
+        <div style="padding:3px 0 0; font-size:10px; color:#8b949e;">
+          trend &gt;+5% → 20 pts. −5%–+5% → 14. −15%–−5% → 7. &lt;−15% → 2. No data → 10 (neutral).
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-arrow">↓</div></div>
+
+  <!-- ════════════════════════════════════════════════════
+       07 + 08 · EXTERNAL APIs + DATABASE
+  ════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-label lc-external">07 · External APIs</span>
+      <div class="layer-line" style="max-width:360px;"></div>
+      <span class="layer-label lc-database" style="margin-left:12px;">08 · Database — Supabase PostgreSQL</span>
+      <div class="layer-line"></div>
+    </div>
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
+
+      <!-- External APIs (2×2 grid) -->
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+
+        <!-- Google Places -->
+        <div class="api-card a-amber">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+            <div style="font-size:26px; line-height:1;">📍</div>
+            <div>
+              <div style="font-size:13px; font-weight:700; color:#fbbf24;">Google Places API</div>
+              <div class="api-model">googlemaps.Client</div>
+            </div>
+          </div>
+          <ul class="fn-list">
+            <li class="fn-item"><span>place() — business details</span></li>
+            <li class="fn-item"><span>places_nearby() — competitors</span></li>
+            <li class="fn-item"><span>Hard cap: 5 reviews (raw API)</span></li>
+            <li class="fn-item"><span>radius: 800m · max: 10 competitors</span></li>
+            <li class="fn-item"><span>photo_count from Places data</span></li>
+            <li class="fn-item"><span>Env: <span class="fn-name">GOOGLE_PLACES_API_KEY</span></span></li>
+          </ul>
+        </div>
+
+        <!-- Apify -->
+        <div class="api-card a-purple">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+            <div style="font-size:26px; line-height:1;">🕷️</div>
+            <div>
+              <div style="font-size:13px; font-weight:700; color:#c084fc;">Apify</div>
+              <div class="api-model">compass~google-maps-reviews-scraper</div>
+            </div>
+          </div>
+          <ul class="fn-list">
+            <li class="fn-item"><span>Bypasses Google's 5-review limit</span></li>
+            <li class="fn-item"><span>Up to 50 reviews per business</span></li>
+            <li class="fn-item"><span>Returns posted_at datetime</span></li>
+            <li class="fn-item"><span>Cache own: 7d · competitor: 30d</span></li>
+            <li class="fn-item"><span>Enables velocity scoring</span></li>
+            <li class="fn-item"><span>Env: <span class="fn-name">APIFY_TOKEN</span></span></li>
+          </ul>
+        </div>
+
+        <!-- Claude Sonnet -->
+        <div class="api-card a-orange">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+            <div style="font-size:26px; line-height:1;">🤖</div>
+            <div>
+              <div style="font-size:13px; font-weight:700; color:#fb923c;">Claude Sonnet</div>
+              <div class="api-model">claude-sonnet-4-20250514</div>
+            </div>
+          </div>
+          <ul class="fn-list">
+            <li class="fn-item"><span>Generates 3–6 business insights</span></li>
+            <li class="fn-item"><span>1 actionable task (budget ₹2k)</span></li>
+            <li class="fn-item"><span>max_tokens: 800</span></li>
+            <li class="fn-item"><span>Input: up to 50 reviews + POS signals</span></li>
+            <li class="fn-item"><span>Strict JSON output (retry ×1)</span></li>
+            <li class="fn-item"><span>Env: <span class="fn-name">ANTHROPIC_API_KEY</span></span></li>
+          </ul>
+        </div>
+
+        <!-- Claude Haiku -->
+        <div class="api-card a-pink">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+            <div style="font-size:26px; line-height:1;">⚡</div>
+            <div>
+              <div style="font-size:13px; font-weight:700; color:#f472b6;">Claude Haiku</div>
+              <div class="api-model">claude-haiku-4-5-20251001</div>
+            </div>
+          </div>
+          <ul class="fn-list">
+            <li class="fn-item"><span>Review classification (fast + cheap)</span></li>
+            <li class="fn-item"><span>Sentiment score per review (1–5)</span></li>
+            <li class="fn-item"><span>max_tokens: 4096 (up to 50 reviews)</span></li>
+            <li class="fn-item"><span>dominant_complaint topic extraction</span></li>
+            <li class="fn-item"><span>Catches polite 4★ with negative text</span></li>
+            <li class="fn-item"><span>Env: <span class="fn-name">ANTHROPIC_API_KEY</span></span></li>
+          </ul>
+        </div>
+
+      </div>
+
+      <!-- Database tables (stacked) -->
+      <div style="display:flex; flex-direction:column; gap:10px;">
+
+        <!-- businesses -->
+        <div class="db-table">
+          <div class="db-header" style="background:#0d2137; border-bottom:1px solid #1e3a50;">
+            <span style="font-size:18px;">🏪</span>
+            <span style="color:#58a6ff; font-size:14px; font-weight:700;">businesses</span>
+            <span style="margin-left:auto; font-size:10px; color:#8b949e;">registered MSMEs</span>
+          </div>
+          <div class="db-col"><span class="pk">id</span><span class="type">UUID &nbsp;PRIMARY KEY</span></div>
+          <div class="db-col"><span>name</span><span class="type">TEXT</span></div>
+          <div class="db-col"><span>place_id</span><span class="type">TEXT &nbsp;UNIQUE &nbsp;(manual_ prefix for synthetic)</span></div>
+          <div class="db-col"><span>category</span><span class="type">TEXT &nbsp;(8 valid types)</span></div>
+          <div class="db-col"><span>owner_name</span><span class="type">TEXT</span></div>
+          <div class="db-col"><span>is_active</span><span class="type">BOOLEAN</span></div>
+        </div>
+
+        <!-- health_scores -->
+        <div class="db-table">
+          <div class="db-header" style="background:#053d2a; border-bottom:1px solid #14532d;">
+            <span style="font-size:18px;">💯</span>
+            <span style="color:#4ade80; font-size:14px; font-weight:700;">health_scores</span>
+            <span style="margin-left:auto; font-size:10px; color:#8b949e;">one row per report run</span>
+          </div>
+          <div class="db-col"><span class="pk">id</span><span class="type">UUID &nbsp;PRIMARY KEY</span></div>
+          <div class="db-col"><span class="fk">business_id</span><span class="type">UUID &nbsp;FK → businesses.id</span></div>
+          <div class="db-col"><span>final_score</span><span class="type">INT &nbsp;[0–100]</span></div>
+          <div class="db-col"><span>review_score &nbsp;/ competitor_score &nbsp;/ pos_score</span><span class="type">INT × 3</span></div>
+          <div class="db-col"><span>google_rating &nbsp;/ total_reviews</span><span class="type">FLOAT &nbsp;/ INT</span></div>
+          <div class="db-col"><span>insights</span><span class="type">JSONB &nbsp;(array of strings)</span></div>
+          <div class="db-col"><span>action</span><span class="type">TEXT &nbsp;(max 600 chars)</span></div>
+          <div class="db-col"><span>report_payload</span><span class="type">JSONB &nbsp;(full cache blob)</span></div>
+          <div class="db-col"><span>created_at</span><span class="type">TIMESTAMPTZ &nbsp;(default now())</span></div>
+        </div>
+
+        <!-- pos_records -->
+        <div class="db-table">
+          <div class="db-header" style="background:#1a1200; border-bottom:1px solid #422006;">
+            <span style="font-size:18px;">📊</span>
+            <span style="color:#fbbf24; font-size:14px; font-weight:700;">pos_records</span>
+            <span style="margin-left:auto; font-size:10px; color:#8b949e;">daily POS rows from CSV</span>
+          </div>
+          <div class="db-col"><span class="pk">id</span><span class="type">UUID &nbsp;PRIMARY KEY</span></div>
+          <div class="db-col"><span class="fk">business_id</span><span class="type">UUID &nbsp;FK → businesses.id</span></div>
+          <div class="db-col"><span>date</span><span class="type">DATE &nbsp;(dedup key with product_category)</span></div>
+          <div class="db-col"><span>product_category</span><span class="type">TEXT</span></div>
+          <div class="db-col"><span>units_sold &nbsp;/ transaction_count</span><span class="type">INT × 2</span></div>
+          <div class="db-col"><span>revenue &nbsp;/ avg_order_value</span><span class="type">FLOAT × 2</span></div>
+          <div class="db-col"><span>unique_customers &nbsp;/ returning_customers</span><span class="type">INT × 2 &nbsp;(optional)</span></div>
+          <div class="db-col"><span>source</span><span class="type">TEXT &nbsp;("synthetic" | "real")</span></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-arrow">↓</div></div>
+
+  <!-- ════════════════════════════════════════════════════
+       09 · INFRASTRUCTURE
+  ════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-label lc-infra">09 · Infrastructure &nbsp;—&nbsp; app/</span>
+      <div class="layer-line"></div>
+    </div>
+    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px;">
+
+      <!-- config.py -->
+      <div class="card a-gray">
+        <div class="card-header">
+          <div class="card-icon ib-gray">⚙️</div>
+          <div>
+            <div class="card-title">config.py</div>
+            <div class="card-subtitle">Single source of truth for all constants</div>
+          </div>
+        </div>
+        <div class="cfg"><span class="cfg-k">REVIEW_WEIGHT</span><span class="cfg-v">0.40</span></div>
+        <div class="cfg"><span class="cfg-k">COMPETITOR_WEIGHT</span><span class="cfg-v">0.25</span></div>
+        <div class="cfg"><span class="cfg-k">POS_WEIGHT</span><span class="cfg-v">0.35</span></div>
+        <div class="cfg"><span class="cfg-k">HEALTHY_THRESHOLD</span><span class="cfg-v">80</span></div>
+        <div class="cfg"><span class="cfg-k">WATCH_THRESHOLD</span><span class="cfg-v">60</span></div>
+        <div class="cfg"><span class="cfg-k">CLAUDE_MODEL</span><span class="cfg-v">sonnet-4-20250514</span></div>
+        <div class="cfg"><span class="cfg-k">HAIKU_MODEL</span><span class="cfg-v">haiku-4-5-20251001</span></div>
+        <div class="cfg"><span class="cfg-k">MAX_TOKENS</span><span class="cfg-v">800 / 4096</span></div>
+        <div class="cfg"><span class="cfg-k">COMPETITOR_RADIUS_METERS</span><span class="cfg-v">800</span></div>
+        <div class="cfg"><span class="cfg-k">MAX_COMPETITORS</span><span class="cfg-v">10</span></div>
+        <div class="cfg"><span class="cfg-k">BATCH_SIZE</span><span class="cfg-v">500</span></div>
+        <div class="cfg"><span class="cfg-k">CATEGORY_POS_THRESHOLDS</span><span class="cfg-v">8 categories</span></div>
+        <div class="cfg"><span class="cfg-k">VALID_CATEGORIES</span><span class="cfg-v">8 types</span></div>
+        <div class="cfg"><span class="cfg-k">REVIEW_HALFLIFE_MONTHS</span><span class="cfg-v">6</span></div>
+      </div>
+
+      <!-- database.py -->
+      <div class="card a-teal">
+        <div class="card-header">
+          <div class="card-icon ib-teal">🗄️</div>
+          <div>
+            <div class="card-title">database.py</div>
+            <div class="card-subtitle">Singleton Supabase client</div>
+          </div>
+        </div>
+        <ul class="fn-list" style="margin-bottom:12px;">
+          <li class="fn-item"><span>create_client(SUPABASE_URL, SUPABASE_KEY)</span></li>
+          <li class="fn-item"><span>Module-level singleton — imported once</span></li>
+          <li class="fn-item"><span><span class="fn-name">from app.database import supabase</span></span></li>
+          <li class="fn-item"><span>All 4 routers + pos_pipeline share same client</span></li>
+        </ul>
+        <div style="padding:10px; background:#042f2e; border-radius:6px; font-size:11px;">
+          <div style="color:#2dd4bf; font-weight:600; margin-bottom:6px;">Required env vars:</div>
+          <div style="font-family:monospace; color:#e3b341;">SUPABASE_URL</div>
+          <div style="font-family:monospace; color:#e3b341;">SUPABASE_KEY</div>
+        </div>
+      </div>
+
+      <!-- logging_config.py -->
+      <div class="card a-gray">
+        <div class="card-header">
+          <div class="card-icon ib-gray">📝</div>
+          <div>
+            <div class="card-title">logging_config.py</div>
+            <div class="card-subtitle">setup_logging()</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span>File handler → <span class="fn-name">logs/module1.log</span></span></li>
+          <li class="fn-item"><span>Console handler (stderr)</span></li>
+          <li class="fn-item"><span>Format: <span class="fn-name">timestamp — level — message</span></span></li>
+          <li class="fn-item"><span>Suppresses noisy 3rd-party loggers (httpx, httpcore, googlemaps)</span></li>
+          <li class="fn-item"><span>Called once in main.py at import time</span></li>
+          <li class="fn-item"><span>All services use <span class="fn-name">logging.getLogger(__name__)</span></span></li>
+          <li class="fn-item"><span>Never use print() for errors</span></li>
+        </ul>
+      </div>
+
+      <!-- models.py -->
+      <div class="card a-indigo">
+        <div class="card-header">
+          <div class="card-icon ib-indigo">📋</div>
+          <div>
+            <div class="card-title">models.py</div>
+            <div class="card-subtitle">All Pydantic v2 models</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span class="fn-name">OnboardRequest</span><span style="color:#484f58;"> — name, place_id, category, owner_name</span></li>
+          <li class="fn-item"><span class="fn-name">ReportResponse</span><span style="color:#484f58;"> — full pipeline output</span></li>
+          <li class="fn-item"><span class="fn-name">SubScores</span><span style="color:#484f58;"> — review, competitor, pos</span></li>
+          <li class="fn-item"><span class="fn-name">Review</span><span style="color:#484f58;"> — rating, text, relative_time</span></li>
+          <li class="fn-item"><span class="fn-name">Competitor</span><span style="color:#484f58;"> — name, rating, review_count</span></li>
+          <li class="fn-item"><span class="fn-name">CompetitorAnalysis</span><span style="color:#484f58;"> — themes, opportunities, analyzed_count</span></li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-arrow">↓</div></div>
+
+  <!-- ════════════════════════════════════════════════════
+       10 · DEV TOOLS
+  ════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-label lc-devtools">10 · Dev Tools — Scripts &amp; Tests</span>
+      <div class="layer-line"></div>
+    </div>
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+
+      <!-- Scripts -->
+      <div class="card a-pink">
+        <div class="card-header">
+          <div class="card-icon ib-pink">🔧</div>
+          <div>
+            <div class="card-title">Scripts &nbsp;—&nbsp; scripts/</div>
+            <div class="card-subtitle">Data generation &amp; seeding utilities</div>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div style="background:#21262d; padding:12px; border-radius:8px; font-size:11px;">
+            <div style="color:#f472b6; font-family:monospace; font-weight:700; margin-bottom:8px;">generate_synthetic_pos.py</div>
+            <ul class="fn-list">
+              <li class="fn-item"><span>Faker + Pandas pipeline</span></li>
+              <li class="fn-item"><span>5 business profiles (healthy, struggling, seasonal, growing, volatile)</span></li>
+              <li class="fn-item"><span>90-day data → 360–450 rows each</span></li>
+              <li class="fn-item"><span>SEED=42 for reproducibility</span></li>
+              <li class="fn-item"><span>Optional: unique_customers, returning_customers columns</span></li>
+              <li class="fn-item"><span>Output: <span class="fn-name">data/business_biz_00{1-5}_pos.csv</span></span></li>
+            </ul>
+          </div>
+          <div style="background:#21262d; padding:12px; border-radius:8px; font-size:11px;">
+            <div style="color:#f472b6; font-family:monospace; font-weight:700; margin-bottom:8px;">seed_test_data.py</div>
+            <ul class="fn-list">
+              <li class="fn-item"><span>CLI tool (sys.argv)</span></li>
+              <li class="fn-item"><span>Takes business_id as argument</span></li>
+              <li class="fn-item"><span>Reads CSV from data/ folder</span></li>
+              <li class="fn-item"><span>Calls <span class="fn-name">ingest_pos_csv(filepath, business_id)</span></span></li>
+              <li class="fn-item"><span>Inserts → Supabase pos_records</span></li>
+              <li class="fn-item"><span>Reports rows_inserted</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tests -->
+      <div class="card a-purple">
+        <div class="card-header">
+          <div class="card-icon ib-purple">🧪</div>
+          <div>
+            <div class="card-title">Tests &nbsp;—&nbsp; tests/ &nbsp;(7 files)</div>
+            <div class="card-subtitle">pytest &nbsp;·&nbsp; pytest.ini (testpaths=tests, pythonpath=.) &nbsp;·&nbsp; conftest.py</div>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; font-size:10px;">
+          <div style="background:#21262d; padding:10px; border-radius:6px;">
+            <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_e2e.py</div>
+            <div style="color:#8b949e; line-height:1.4;">5 businesses × 6 steps via FastAPI TestClient. Full pipeline acceptance test. No external deps.</div>
+          </div>
+          <div style="background:#21262d; padding:10px; border-radius:6px;">
+            <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_health_score.py</div>
+            <div style="color:#8b949e; line-height:1.4;">23 assertions. Unit + integration. Healthy profile → 75+. Struggling → &lt;40. No external deps.</div>
+          </div>
+          <div style="background:#21262d; padding:10px; border-radius:6px;">
+            <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_insights.py</div>
+            <div style="color:#8b949e; line-height:1.4;">10 profiles × Claude call. Specificity quality gate: avg ≥ 3.5/5. Requires ANTHROPIC_API_KEY.</div>
+          </div>
+          <div style="background:#21262d; padding:10px; border-radius:6px;">
+            <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_connections.py</div>
+            <div style="color:#8b949e; line-height:1.4;">Verifies Supabase connectivity. Requires live SUPABASE_URL + SUPABASE_KEY.</div>
+          </div>
+          <div style="background:#21262d; padding:10px; border-radius:6px;">
+            <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_google_places.py</div>
+            <div style="color:#8b949e; line-height:1.4;">End-to-end. 5 Bangalore place IDs. Pass ≥ 4/5. Blocked: needs legacy Places API enabled.</div>
+          </div>
+          <div style="background:#21262d; padding:10px; border-radius:6px;">
+            <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_pos_pipeline.py</div>
+            <div style="color:#8b949e; line-height:1.4;">Ingest + signals. Requires live Supabase. Tests dedup logic and signal computation.</div>
+          </div>
+          <div style="background:#21262d; padding:10px; border-radius:6px; grid-column: span 3;">
+            <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_csv_scoring.py</div>
+            <div style="color:#8b949e; line-height:1.4;">CSV-based scoring with mock Google data. No Supabase needed. Fast offline test of scoring engine.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════
+       QUALITY GATES
+  ════════════════════════════════════════════════════ -->
+  <div class="layer" style="margin-top:16px;">
+    <div class="layer-header">
+      <span class="layer-label" style="background:#1c1c1c;color:#aaa;">QA · Quality Gates Before MVP ✓</span>
+      <div class="layer-line"></div>
+    </div>
+    <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:10px; font-size:11px;">
+      <div style="background:#161b22; border:1px solid #238636; border-radius:8px; padding:10px; text-align:center;">
+        <div style="font-size:20px; margin-bottom:4px;">✅</div>
+        <div style="color:#4ade80; font-weight:600;">Healthy profile</div>
+        <div style="color:#8b949e; margin-top:4px;">Scores ≥ 75 · achieved 89 in test_health_score.py (Session 3)</div>
+      </div>
+      <div style="background:#161b22; border:1px solid #238636; border-radius:8px; padding:10px; text-align:center;">
+        <div style="font-size:20px; margin-bottom:4px;">✅</div>
+        <div style="color:#4ade80; font-weight:600;">Struggling profile</div>
+        <div style="color:#8b949e; margin-top:4px;">Scores &lt; 40 · achieved 38 in test_health_score.py (Session 3)</div>
+      </div>
+      <div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:10px; text-align:center;">
+        <div style="font-size:20px; margin-bottom:4px;">⬜</div>
+        <div style="color:#8b949e; font-weight:600;">Google Places test</div>
+        <div style="color:#8b949e; margin-top:4px;">≥ 4/5 Bangalore place IDs pass. Blocked: legacy Places API in GCP.</div>
+      </div>
+      <div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:10px; text-align:center;">
+        <div style="font-size:20px; margin-bottom:4px;">⬜</div>
+        <div style="color:#8b949e; font-weight:600;">Claude quality gate</div>
+        <div style="color:#8b949e; margin-top:4px;">10 outputs avg ≥ 3.5/5 specificity. Names products + competitors.</div>
+      </div>
+      <div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:10px; text-align:center;">
+        <div style="font-size:20px; margin-bottom:4px;">⬜</div>
+        <div style="color:#8b949e; font-weight:600;">Pipeline stability</div>
+        <div style="color:#8b949e; margin-top:4px;">10 businesses run without unhandled exceptions. Slow category flagged by name.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════
+       FOOTER
+  ════════════════════════════════════════════════════ -->
+  <div style="margin-top:24px; padding:18px 24px; background:#161b22; border:1px solid #30363d; border-radius:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <div style="font-size:12px; color:#8b949e;">
+      <span style="color:#e6edf3; font-weight:700;">VyaparAI Module 1</span>
+      &nbsp;·&nbsp; MVP &nbsp;·&nbsp; No UI &nbsp;·&nbsp; No Auth &nbsp;·&nbsp; No Scheduler &nbsp;·&nbsp; No WhatsApp &nbsp;·&nbsp; No ML forecasting
+    </div>
+    <div style="font-size:11px; color:#484f58;">
+      Branch: main &nbsp;·&nbsp; Last updated: 27 Apr 2026 &nbsp;·&nbsp; Generated by Claude Sonnet 4.6
+    </div>
+    <div style="display:flex; gap:14px; font-size:12px; color:#8b949e;">
+      <span>📁 app/ — 21 files</span>
+      <span>🧪 tests/ — 7 files</span>
+      <span>🔧 scripts/ — 2 files</span>
+      <span>🗄️ 3 DB tables</span>
+      <span>4 external APIs</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

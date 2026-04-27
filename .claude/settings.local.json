@@ -39,7 +39,9 @@
       "Bash(curl -sS -i --max-time 30 -H \"Origin: https://refloat.in\" \"https://vyaparai-api.onrender.com/search-places?q=test\")",
       "Bash(curl -sS -i --max-time 30 -X OPTIONS -H \"Origin: https://refloat.in\" -H \"Access-Control-Request-Method: GET\" \"https://vyaparai-api.onrender.com/search-places?q=test\")",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8000/docs)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(awk -F',' 'NR>1 {print $1}' /Users/pg/Downloads/indian_restaurant_sales_current_dates.csv)",
+      "Bash(lsof -iTCP:3000 -sTCP:LISTEN)"
     ]
   }
 }

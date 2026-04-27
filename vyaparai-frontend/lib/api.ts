@@ -29,6 +29,26 @@ export interface CompetitorAnalysis {
   analyzed_count: number;
 }
 
+export interface PosSignals {
+  revenue_trend_pct: number | null;
+  slow_categories: string[];
+  top_product: string | null;
+  aov_direction: string | null;
+  repeat_rate_pct: number | null;
+  repeat_rate_trend: number | null;
+}
+
+export interface WeeklyRevenue {
+  week: string;
+  rev: number;
+}
+
+export interface CategoryRevenue {
+  name: string;
+  rev: number;
+  pct: number;
+}
+
 export interface HealthReport {
   business_id: string;
   business_name: string;
@@ -45,6 +65,9 @@ export interface HealthReport {
   insights: [string, string, string];
   action: string;
   competitor_analysis: CompetitorAnalysis;
+  pos_signals: PosSignals;
+  weekly_revenue: WeeklyRevenue[];
+  revenue_by_category: CategoryRevenue[];
   generated_at: string;
 }
 

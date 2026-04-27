@@ -11,24 +11,34 @@ import { useAuth } from '@/lib/auth-context';
 import { useViewport } from '@/lib/use-viewport';
 import { Bars, Gauge, Logo, Skeleton, Stat, ThemeToggle } from '@/components/ui';
 
-// ─── Static data (not yet available from API) ──────────────────────────────────
-const STATIC_WEEKLY = [
-  { week: 'W1Feb', rev: 85000 }, { week: 'W2Feb', rev: 92000 }, { week: 'W3Feb', rev: 78000 },
-  { week: 'W4Feb', rev: 105000 }, { week: 'W1Mar', rev: 98000 }, { week: 'W2Mar', rev: 110000 },
-  { week: 'W3Mar', rev: 108000 }, { week: 'W4Mar', rev: 115000 },
-];
-const STATIC_CATS = [
-  { name: 'Dal Makhani',    rev: 38000, pct: 33, color: 'var(--gold)'    },
-  { name: 'Paneer Dishes',  rev: 27000, pct: 23, color: 'var(--violet)'  },
-  { name: 'Tandoori Items', rev: 23000, pct: 20, color: 'var(--emerald)' },
-  { name: 'Breads & Rotis', rev: 14000, pct: 12, color: 'var(--red)'     },
-  { name: 'Beverages',      rev: 13000, pct: 11, color: 'var(--yellow)'  },
-];
-const STATIC_REVIEWS = [
-  { stars: 5, text: "Best dal makhani in KP! Perfectly creamy and the service was quick even during lunch hour.", author: 'Priya M.' },
-  { stars: 4, text: "Great Punjabi food. Gets crowded at peak hours but the flavours make it worth the wait.", author: 'Aakash K.' },
-  { stars: 5, text: "Authentic flavours, generous portions. The signature dal makhani is worth every rupee.", author: 'Sneha R.' },
-];
+// ─── POS display helpers ───────────────────────────────────────────────────────
+const CAT_COLORS = ['var(--gold)', 'var(--violet)', 'var(--emerald)', 'var(--red)', 'var(--yellow)', '#7dd3fc', '#f472b6', '#94a3b8'];
+
+function formatTrend(pct: number | null): string {
+  if (pct == null) return '—';
+  const sign = pct > 0 ? '+' : '';
+  return `${sign}${pct.toFixed(1)}%`;
+}
+
+function formatAov(dir: string | null): string {
+  if (!dir) return '—';
+  if (dir === 'rising')  return '↑ Up';
+  if (dir === 'falling') return '↓ Down';
+  return '→ Stable';
+}
+
+function aovColor(dir: string | null): string {
+  if (dir === 'rising')  return 'var(--emerald)';
+  if (dir === 'falling') return 'var(--red)';
+  return 'var(--violet)';
+}
+
+function trendColor(pct: number | null): string {
+  if (pct == null) return 'var(--text3)';
+  if (pct > 0)  return 'var(--emerald)';
+  if (pct < 0)  return 'var(--red)';
+  return 'var(--text2)';
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 type Tab         = 'overview' | 'insights' | 'competitors' | 'pos' | 'history' | 'notes';
@@ -479,19 +489,52 @@ function OverviewTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx })
 
         {/* Col 3 — POS Signals */}
         <div style={{ ...CARD, display: 'flex', flexDirection: 'column' }}>
-          <span style={SEC}>POS Signals · 90 Days</span>
+          <span style={SEC}>POS Signals · 30 Days</span>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>
-            <Stat label="Revenue Trend" value="+12.4%"      sub="vs last quarter" color="var(--emerald)" glow />
-            <Stat label="Top Product"   value="Dal Makhani" sub="33% of revenue"  color="var(--gold)" />
-            <Stat label="AOV Direction" value="↑ Up"        sub="avg order value" color="var(--violet)" />
-            <div style={{ background: 'var(--red-dim)', border: '1px solid rgba(255,95,95,0.25)', borderRadius: 'var(--r)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, justifyContent: 'center' }}>
-              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text3)' }}>Slow</span>
-              <span style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--red)', lineHeight: 1.25 }}>Desserts, Cold Drinks</span>
-            </div>
+            <Stat
+              label="Revenue Trend"
+              value={formatTrend(report.pos_signals.revenue_trend_pct)}
+              sub="vs prior month"
+              color={trendColor(report.pos_signals.revenue_trend_pct)}
+              glow
+            />
+            <Stat
+              label="Top Product"
+              value={report.pos_signals.top_product ?? '—'}
+              sub={report.revenue_by_category[0] ? `${report.revenue_by_category[0].pct}% of revenue` : 'no POS data'}
+              color="var(--gold)"
+            />
+            <Stat
+              label="AOV Direction"
+              value={formatAov(report.pos_signals.aov_direction)}
+              sub="avg order value"
+              color={aovColor(report.pos_signals.aov_direction)}
+            />
+            {report.pos_signals.slow_categories.length > 0 ? (
+              <div style={{ background: 'var(--red-dim)', border: '1px solid rgba(255,95,95,0.25)', borderRadius: 'var(--r)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, justifyContent: 'center' }}>
+                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text3)' }}>Slow</span>
+                <span style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--red)', lineHeight: 1.25 }}>
+                  {report.pos_signals.slow_categories.join(', ')}
+                </span>
+              </div>
+            ) : (
+              <Stat
+                label="Repeat Rate"
+                value={report.pos_signals.repeat_rate_pct != null ? `${report.pos_signals.repeat_rate_pct.toFixed(1)}%` : '—'}
+                sub={report.pos_signals.repeat_rate_trend != null ? `${formatTrend(report.pos_signals.repeat_rate_trend)} vs prior` : 'returning customers'}
+                color="var(--emerald)"
+              />
+            )}
           </div>
           <div style={{ marginTop: 'auto' }}>
             <span style={{ ...SEC, marginBottom: 8 }}>8-Week Revenue</span>
-            <Bars data={STATIC_WEEKLY} height={80} />
+            {report.weekly_revenue.length > 0 ? (
+              <Bars data={report.weekly_revenue} height={80} />
+            ) : (
+              <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0, textAlign: 'center', padding: '24px 0' }}>
+                Upload POS data to see revenue trends.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -773,51 +816,67 @@ function CompetitorsTab({ report }: { report: HealthReport }) {
 function PosTab({ report }: { report: HealthReport }) {
   const { isMobile } = useViewport();
   const cols = isMobile ? '1fr' : '1fr 1fr';
+  const cats = report.revenue_by_category;
+  const weekly = report.weekly_revenue;
+  const latestWeek = weekly[weekly.length - 1];
+  const formatINR = (n: number) =>
+    n >= 100000 ? `₹${(n / 100000).toFixed(2)}L` : n >= 1000 ? `₹${(n / 1000).toFixed(0)}k` : `₹${Math.round(n)}`;
+
+  if (cats.length === 0 && weekly.every((w) => w.rev === 0)) {
+    return (
+      <div style={{ ...CARD, textAlign: 'center', padding: '40px 24px' }}>
+        <p style={{ fontSize: 14, color: 'var(--text2)', margin: '0 0 6px' }}>No POS data yet.</p>
+        <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>
+          Upload a CSV via the onboarding flow or POST <code style={{ color: 'var(--text2)' }}>/upload-pos/{report.business_id}</code> to populate this tab.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 16, alignItems: 'start' }}>
         <div style={CARD}>
           <span style={SEC}>Revenue by Category</span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {STATIC_CATS.map((cat) => (
-              <div key={cat.name}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: cat.color, flexShrink: 0, display: 'inline-block' }} />
-                    <span style={{ fontSize: 13, color: 'var(--text2)' }}>{cat.name}</span>
+            {cats.map((cat, i) => {
+              const color = CAT_COLORS[i % CAT_COLORS.length];
+              return (
+                <div key={cat.name}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
+                      <span style={{ fontSize: 13, color: 'var(--text2)' }}>{cat.name}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontFamily: 'var(--font-space-mono), monospace', fontSize: 12, color: 'var(--text3)' }}>{formatINR(cat.rev)}</span>
+                      <span style={{ fontFamily: 'var(--font-space-mono), monospace', fontSize: 12, fontWeight: 700, color: 'var(--text)', width: 40, textAlign: 'right' }}>{cat.pct}%</span>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ fontFamily: 'var(--font-space-mono), monospace', fontSize: 12, color: 'var(--text3)' }}>₹{(cat.rev / 1000).toFixed(0)}k</span>
-                    <span style={{ fontFamily: 'var(--font-space-mono), monospace', fontSize: 12, fontWeight: 700, color: 'var(--text)', width: 30, textAlign: 'right' }}>{cat.pct}%</span>
+                  <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 999, overflow: 'hidden' }}>
+                    <div style={{ width: `${cat.pct}%`, height: '100%', background: color, borderRadius: 999 }} />
                   </div>
                 </div>
-                <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 999, overflow: 'hidden' }}>
-                  <div style={{ width: `${cat.pct}%`, height: '100%', background: cat.color, borderRadius: 999 }} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={CARD}>
             <span style={SEC}>8-Week Revenue Trend</span>
-            <Bars data={STATIC_WEEKLY} height={100} />
+            <Bars data={weekly} height={100} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <Stat label="POS Score"    value={String(report.sub_scores.pos_score)} sub="out of 100"  color="var(--emerald)" glow />
-            <Stat label="Latest Week"  value="₹1.15L"                              sub="est. Apr 21" color="var(--violet)"       />
+            <Stat label="POS Score" value={String(report.sub_scores.pos_score)} sub="out of 100" color="var(--emerald)" glow />
+            <Stat
+              label="Latest Week"
+              value={latestWeek ? formatINR(latestWeek.rev) : '—'}
+              sub={latestWeek ? latestWeek.week : 'no data'}
+              color="var(--violet)"
+            />
           </div>
         </div>
-      </div>
-
-      <div style={{ ...CARD, display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px' }}>
-        <span style={{ fontSize: 26, lineHeight: 1, flexShrink: 0 }}>🍽️</span>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>Petpooja</div>
-          <div style={{ fontSize: 12, color: 'var(--text3)' }}>Connected · Last sync 2 hours ago · 90 days loaded</div>
-        </div>
-        <div style={{ background: 'var(--emerald-dim)', border: '1px solid var(--emerald)', borderRadius: 999, padding: '3px 12px', fontSize: 11, fontWeight: 600, color: 'var(--emerald)', flexShrink: 0 }}>Active</div>
       </div>
     </div>
   );
@@ -1271,9 +1330,11 @@ export default function DashboardPage() {
             </>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--gold-dim)', border: '1px solid rgba(245,166,35,0.3)', borderRadius: 999, padding: '5px 13px', fontSize: 12, fontWeight: 500, color: 'var(--gold)', flexShrink: 0, marginTop: 2 }}>
-          🍽️ Petpooja Connected
-        </div>
+        {report && report.pos_signals.revenue_trend_pct != null && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--gold-dim)', border: '1px solid rgba(245,166,35,0.3)', borderRadius: 999, padding: '5px 13px', fontSize: 12, fontWeight: 500, color: 'var(--gold)', flexShrink: 0, marginTop: 2 }}>
+            📊 POS Data Loaded
+          </div>
+        )}
       </div>
 
       {/* ── Tab content ────────────────────────────────── */}
