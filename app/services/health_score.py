@@ -196,11 +196,30 @@ def _revenue_pts(trend: float, thresholds: dict) -> float:
     return 0.0
 
 
-def pos_score(signals: dict, category: str = "") -> int:
-    """Compute 0-100 POS health score from revenue trend, inventory, and AOV signals.
+def _repeat_pts(repeat_rate_trend: float | None) -> float:
+    """Map repeat-customer rate trend (%) to 0–20 pts.
 
-    Uses category-specific growth bands and slow thresholds so a pharmacy
-    staying flat is not penalised the same as a retail store staying flat.
+    Trend > 5%: customers returning more often — strong health signal.
+    Trend < -15%: sharp churn — early warning of deeper problems.
+    No data: neutral 10 pts so absence of the column doesn't penalise.
+    """
+    if repeat_rate_trend is None:
+        return 10.0  # neutral when column not present in POS data
+    if repeat_rate_trend > 5:
+        return 20.0
+    if repeat_rate_trend >= -5:
+        return 14.0
+    if repeat_rate_trend >= -15:
+        return 7.0
+    return 2.0  # sharp decline
+
+
+def pos_score(signals: dict, category: str = "") -> int:
+    """Compute 0-100 POS health score from revenue trend, inventory, AOV, and repeat rate.
+
+    Weights: revenue (0–40) + inventory (0–25) + AOV (0–15) + repeat rate (0–20) = 100.
+    Uses category-specific growth bands so a pharmacy staying flat is not penalised
+    the same as a retail store staying flat.
     """
     if not signals:
         return NO_POS_DATA_NEUTRAL
@@ -213,37 +232,40 @@ def pos_score(signals: dict, category: str = "") -> int:
 
     thresholds = CATEGORY_POS_THRESHOLDS.get(category, DEFAULT_POS_THRESHOLDS)
 
-    # Revenue trend (0–50)
-    revenue_pts = max(0.0, min(50.0, _revenue_pts(trend, thresholds)))
+    # Revenue trend (0–40, scaled from the 0–50 band function)
+    revenue_pts = max(0.0, min(40.0, _revenue_pts(trend, thresholds) * 0.8))
 
-    # Inventory health (0–30)
+    # Inventory health (0–25)
     slow_count = len(signals.get("slow_categories", []))
     if slow_count == 0:
-        inventory_pts = 30
+        inventory_pts = 25
     elif slow_count == 1:
-        inventory_pts = 20
+        inventory_pts = 17
     elif slow_count == 2:
-        inventory_pts = 10
+        inventory_pts = 8
     else:
         inventory_pts = 0
 
-    # AOV health (0–20)
+    # AOV health (0–15)
     aov = signals.get("aov_direction")
     if aov == "rising":
-        aov_pts = 20
+        aov_pts = 15
     elif aov == "stable":
-        aov_pts = 12
+        aov_pts = 9
     elif aov == "falling":
-        aov_pts = 5
+        aov_pts = 4
     else:
-        aov_pts = 12  # None defaults to stable
+        aov_pts = 9  # None defaults to stable
 
-    total = int(revenue_pts + inventory_pts + aov_pts)
+    # Repeat customer rate trend (0–20)
+    repeat_pts = _repeat_pts(signals.get("repeat_rate_trend"))
+
+    total = int(revenue_pts + inventory_pts + aov_pts + repeat_pts)
     result = max(0, min(100, total))
 
     logger.debug(
-        "pos_score: category=%s trend=%.1f rev=%.1f inv=%d aov=%d → %d",
-        category, trend, revenue_pts, inventory_pts, aov_pts, result,
+        "pos_score: category=%s trend=%.1f rev=%.1f inv=%d aov=%d repeat=%.0f → %d",
+        category, trend, revenue_pts, inventory_pts, aov_pts, repeat_pts, result,
     )
 
     return result

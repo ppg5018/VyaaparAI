@@ -42,6 +42,9 @@ BUSINESS_PROFILES = [
         "slow_category_factor": 1.0,
         "weekend_boost": 0.35,
         "weekday_dip": 0.15,
+        # repeat rate rising: loyal customer base growing with the business
+        "repeat_rate_start": 0.50,
+        "repeat_rate_end": 0.62,
         "category_weights": {
             "Dal Makhani": 0.20,
             "Paneer Dishes": 0.30,
@@ -68,6 +71,9 @@ BUSINESS_PROFILES = [
         "slow_category_factor": 0.25,
         "weekend_boost": 0.20,
         "weekday_dip": 0.10,
+        # repeat rate sharply declining: customers not coming back — early warning
+        "repeat_rate_start": 0.60,
+        "repeat_rate_end": 0.28,
         "category_weights": {
             "Chicken Dishes": 0.35,
             "Mutton Dishes": 0.25,
@@ -94,6 +100,9 @@ BUSINESS_PROFILES = [
         "slow_category_factor": 0.30,
         "weekend_boost": 0.08,
         "weekday_dip": 0.05,
+        # kirana: very high repeat (neighbourhood regulars), very stable
+        "repeat_rate_start": 0.72,
+        "repeat_rate_end": 0.70,
         "category_weights": {
             "Atta": 0.25,
             "Rice": 0.25,
@@ -122,6 +131,9 @@ BUSINESS_PROFILES = [
         "slow_category_factor": 0.10,
         "weekend_boost": 0.40,
         "weekday_dip": 0.20,
+        # retail: lower base repeat (fashion = less habitual), mild rise with seasonal spike
+        "repeat_rate_start": 0.38,
+        "repeat_rate_end": 0.46,
         "category_weights": {
             "Kurtas": 0.35,
             "Sarees": 0.30,
@@ -146,6 +158,9 @@ BUSINESS_PROFILES = [
         "slow_category_factor": 0.20,
         "weekend_boost": 0.60,
         "weekday_dip": 0.25,
+        # cafe: moderate repeat rate but declining (customers finding alternatives)
+        "repeat_rate_start": 0.55,
+        "repeat_rate_end": 0.32,
         "category_weights": {
             "Coffee": 0.35,
             "Sandwiches": 0.25,
@@ -254,6 +269,14 @@ def generate_business_pos(business_profile: dict) -> pd.DataFrame:
         else:
             slow_factor = business_profile["slow_category_factor"]
 
+        # Interpolate repeat rate linearly across the 90-day window with small noise.
+        repeat_rate = (
+            business_profile["repeat_rate_start"]
+            + (business_profile["repeat_rate_end"] - business_profile["repeat_rate_start"])
+            * (day_index / max(1, total_days - 1))
+        )
+        repeat_rate = max(0.05, min(0.95, repeat_rate + random.uniform(-0.04, 0.04)))
+
         for category in business_profile["categories"]:
             weight = business_profile["category_weights"][category]
             unit_price = business_profile["unit_prices"][category]
@@ -266,6 +289,11 @@ def generate_business_pos(business_profile: dict) -> pd.DataFrame:
             transaction_count = max(1, int(units_sold * random.uniform(0.6, 0.9)))
             avg_order_value = round(cat_revenue / transaction_count, 2)
 
+            # unique_customers proxied by transaction_count; returning_customers derived
+            # from the interpolated repeat rate so the trend is detectable by pos_pipeline.
+            unique_customers = transaction_count
+            returning_customers = max(0, int(unique_customers * repeat_rate))
+
             rows.append({
                 "date": current_date.strftime("%Y-%m-%d"),
                 "product_category": category,
@@ -273,12 +301,15 @@ def generate_business_pos(business_profile: dict) -> pd.DataFrame:
                 "revenue": round(cat_revenue, 2),
                 "transaction_count": transaction_count,
                 "avg_order_value": avg_order_value,
+                "unique_customers": unique_customers,
+                "returning_customers": returning_customers,
             })
 
     df = pd.DataFrame(
         rows,
         columns=["date", "product_category", "units_sold", "revenue",
-                 "transaction_count", "avg_order_value"],
+                 "transaction_count", "avg_order_value",
+                 "unique_customers", "returning_customers"],
     )
     df = df.sort_values(["date", "product_category"]).reset_index(drop=True)
     logger.info(

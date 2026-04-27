@@ -33,6 +33,8 @@ def _null_signals() -> dict:
         "slow_categories": [],
         "top_product": None,
         "aov_direction": None,
+        "repeat_rate_pct": None,
+        "repeat_rate_trend": None,
     }
 
 
@@ -136,10 +138,11 @@ def ingest_pos_csv(filepath: str, business_id: str) -> int:
     df["business_id"] = business_id
     df["source"] = "synthetic"
 
-    records = df[
-        ["business_id", "date", "product_category", "units_sold", "revenue",
-         "transaction_count", "avg_order_value", "source"]
-    ].to_dict("records")
+    # Include optional customer columns only when the CSV provides them.
+    base_cols = ["business_id", "date", "product_category", "units_sold", "revenue",
+                 "transaction_count", "avg_order_value", "source"]
+    optional_cols = [c for c in ("unique_customers", "returning_customers") if c in df.columns]
+    records = df[base_cols + optional_cols].to_dict("records")
 
     total_inserted = 0
     try:
@@ -282,14 +285,55 @@ def pos_signals(business_id: str, days: int = 30, category: str = "") -> dict:
     except Exception as exc:
         logger.warning("aov_direction computation failed: %s", exc)
 
+    # Repeat customer rate — only available when unique_customers column exists
+    repeat_rate_pct = None
+    repeat_rate_trend = None
+    try:
+        if "unique_customers" in df.columns and "returning_customers" in df.columns:
+            df["unique_customers"] = pd.to_numeric(df["unique_customers"], errors="coerce").fillna(0)
+            df["returning_customers"] = pd.to_numeric(df["returning_customers"], errors="coerce").fillna(0)
+
+            daily = (
+                df.groupby("date")[["unique_customers", "returning_customers"]]
+                .sum()
+                .reset_index()
+            )
+
+            recent_daily = daily[daily["date"] >= recent_cutoff]
+            prior_daily = daily[daily["date"] < recent_cutoff]
+
+            recent_total = recent_daily["unique_customers"].sum()
+            recent_return = recent_daily["returning_customers"].sum()
+            prior_total = prior_daily["unique_customers"].sum()
+            prior_return = prior_daily["returning_customers"].sum()
+
+            if recent_total > 0:
+                repeat_rate_pct = round((recent_return / recent_total) * 100, 1)
+
+            if prior_total > 0 and recent_total > 0:
+                prior_rate = prior_return / prior_total
+                recent_rate = recent_return / recent_total
+                if prior_rate > 0:
+                    repeat_rate_trend = round(((recent_rate - prior_rate) / prior_rate) * 100, 1)
+
+            logger.debug(
+                "repeat_rate: recent=%.1f%% trend=%s%%",
+                repeat_rate_pct or 0, repeat_rate_trend,
+            )
+    except Exception as exc:
+        logger.warning("repeat_rate computation failed: %s", exc)
+
     signals = {
         "revenue_trend_pct": trend,
         "slow_categories": slow_cats,
         "top_product": top_product,
         "aov_direction": aov_direction,
+        "repeat_rate_pct": repeat_rate_pct,
+        "repeat_rate_trend": repeat_rate_trend,
     }
     logger.info(
-        "Signals for business_id=%s: trend=%s%% slow=%s top=%s aov=%s",
+        "Signals for business_id=%s: trend=%s%% slow=%s top=%s aov=%s repeat=%.1f%%(trend=%s%%)",
         business_id, trend, slow_cats, top_product, aov_direction,
+        repeat_rate_pct or 0, repeat_rate_trend,
     )
     return signals

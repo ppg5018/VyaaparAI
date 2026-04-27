@@ -68,7 +68,7 @@ print("\n-- pos_score() --")
 s = pos_score({"revenue_trend_pct": None, "slow_categories": [], "top_product": None, "aov_direction": None})
 check(s == 50, "1. All-None signals: score == 50", s)
 
-s = pos_score({"revenue_trend_pct": 12.0, "slow_categories": [], "top_product": "Paneer Dishes", "aov_direction": "rising"})
+s = pos_score({"revenue_trend_pct": 12.0, "slow_categories": [], "top_product": "Paneer Dishes", "aov_direction": "rising", "repeat_rate_trend": 10.0})
 check(s >= 95, "2. Healthy signals: score >= 95", s)
 
 s = pos_score({"revenue_trend_pct": -18.0, "slow_categories": ["X", "Y"], "top_product": None, "aov_direction": "falling"})

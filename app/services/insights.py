@@ -25,7 +25,7 @@ def insight_count(business_data: dict, pos_signals: dict) -> int:
     competitors = business_data.get("competitors") or []
     if len(competitors) >= 3:
         score += 1
-    pos_signal_keys = ("revenue_trend_pct", "slow_categories", "top_product", "aov_direction")
+    pos_signal_keys = ("revenue_trend_pct", "slow_categories", "top_product", "aov_direction", "repeat_rate_pct")
     pos_present = sum(1 for k in pos_signal_keys if pos_signals.get(k))
     if pos_present >= 2:
         score += 1
@@ -76,6 +76,8 @@ def build_prompt(
     slow_categories = pos_signals.get("slow_categories", [])
     top_product = pos_signals.get("top_product")
     aov_direction = pos_signals.get("aov_direction")
+    repeat_rate_pct = pos_signals.get("repeat_rate_pct")
+    repeat_rate_trend = pos_signals.get("repeat_rate_trend")
 
     revenue_trend_str = (
         "No POS data available" if revenue_trend_pct is None
@@ -87,6 +89,14 @@ def build_prompt(
     )
     top_product_str = top_product if top_product is not None else "No POS data available"
     aov_str = aov_direction if aov_direction is not None else "No POS data available"
+
+    if repeat_rate_pct is None:
+        repeat_str = "No customer data available"
+    else:
+        trend_tag = (
+            f", trend {repeat_rate_trend:+.1f}% vs prior period" if repeat_rate_trend is not None else ""
+        )
+        repeat_str = f"{repeat_rate_pct:.1f}% of visits are returning customers{trend_tag}"
 
     insight_slots = ", ".join(['"..."'] * count)
 
@@ -126,6 +136,7 @@ Revenue trend: {revenue_trend_str}
 Slow-moving categories: {slow_categories_str}
 Top product by revenue: {top_product_str}
 Average order value: {aov_str}
+Repeat customer rate: {repeat_str}
 
 Review analysis (Claude-rated sentiment, not raw stars):
 {complaint_line}
