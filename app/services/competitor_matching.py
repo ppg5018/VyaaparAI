@@ -133,6 +133,48 @@ def _strip_markdown(text: str) -> str:
     return text.strip()
 
 
+# Per-category tagging examples — specifically chosen to disambiguate brands
+# Haiku tends to misclassify across calls (e.g. Adidas sells both shoes and
+# apparel; without guidance Haiku flips between footwear and clothing).
+_TAGGING_EXAMPLES: dict[str, list[str]] = {
+    "restaurant": [
+        '"Vidyarthi Bhavan" → south_indian',
+        '"Truffles" → multicuisine',
+        '"Punjab Grill" → north_indian',
+        '"Behrouz Biryani" → biryani',
+        '"McDonalds", "Dominos", "KFC" → fast_food',
+    ],
+    "cafe": [
+        '"Starbucks", "Cafe Coffee Day", "Barista" → coffee_shop',
+        '"Theobroma", "Monginis" → bakery',
+        '"Naturals", "Baskin Robbins" → dessert_parlour',
+    ],
+    "retail": [
+        # Sportswear brands sell shoes AND apparel — always tag as footwear since
+        # shoes are their primary identity in India. This is the canonical example
+        # of where Haiku flip-flops without guidance.
+        '"Nike", "Adidas", "Puma", "Reebok", "Skechers", "ASICS", "New Balance", "FILA" → footwear',
+        '"Bata", "Liberty", "Metro Shoes", "Hush Puppies", "Crocs", "Woodland", "Red Tape" → footwear',
+        '"Allen Solly", "Van Heusen", "Jockey", "Pantaloons", "Westside", "Max", "Zara", "H&M" → clothing',
+        '"Croma", "Reliance Digital", "Vijay Sales", "Samsung", "Sony", "LG" → electronics',
+        '"Sleepwell", "Kurlon", "Pepperfry", "Home Centre", "Urban Ladder" → home_goods',
+    ],
+    "grocery": [
+        '"DMart", "Reliance Fresh", "More Megastore", "Big Bazaar" → supermarket',
+        '"Local kirana / general store" → kirana',
+        '"Organic India", "24 Mantra" → organic',
+    ],
+    "pharmacy": [
+        '"Apollo Pharmacy", "MedPlus", "Wellness Forever", "1mg", "Netmeds" → chain',
+        '"Local medical store" → independent',
+    ],
+    "medical": [
+        '"Apollo Clinic", "Practo Clinic" → clinic',
+        '"Dr Lal PathLabs", "Thyrocare", "Metropolis" → diagnostic',
+    ],
+}
+
+
 def _build_tagger_prompt(
     parent_category: str,
     vocab: list[str],
@@ -145,13 +187,26 @@ def _build_tagger_prompt(
     business_block = "\n".join(lines)
     vocab_str = ", ".join(vocab)
 
+    examples = _TAGGING_EXAMPLES.get(parent_category, [])
+    if examples:
+        examples_block = "Examples for this category:\n  " + "\n  ".join(examples)
+    else:
+        examples_block = "Use the most specific tag that fits the business name."
+
     return f"""You are categorising Indian {parent_category} businesses by sub-category for a competitive analysis.
 
 Each business below should be tagged with the single best sub-category from this list:
 {vocab_str}
 
-Use "general" only if the name gives no signal. Many Indian business names are descriptive
-(e.g. "Vidyarthi Bhavan" → south_indian; "Truffles" → multicuisine; "Bhagini Idli" → south_indian).
+{examples_block}
+
+Rules:
+- A business that primarily sells one thing (even if it also sells related items)
+  gets the primary tag. Sportswear brands like Adidas/Nike sell apparel too, but
+  they are footwear stores — tag them "footwear", not "clothing".
+- Use "general" only if the name gives NO signal at all (e.g. just a person's name).
+- Be consistent: if two names obviously refer to the same kind of business, give
+  them the same tag.
 
 Businesses (format: index | name):
 {business_block}
