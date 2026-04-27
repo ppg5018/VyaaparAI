@@ -8,7 +8,7 @@ from app.models import (
     Review, SubScores, WeeklyRevenue,
 )
 from app.database import supabase
-from app.services import apify_reviews, competitor_analysis, google_places, health_score, insights, pos_pipeline, review_classifier
+from app.services import apify_reviews, competitor_analysis, competitor_matching, google_places, health_score, insights, pos_pipeline, review_classifier
 from app.services.health_score import compute_velocity
 
 logger = logging.getLogger(__name__)
@@ -107,6 +107,22 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         except Exception as exc:
             logger.warning(
                 "[generate-report] business_id=%s Apify augmentation skipped (non-fatal): %s",
+                business_id, exc,
+            )
+
+        # 2c. Tier the competitor list — review count, price band, sub-category match.
+        try:
+            google_data["competitors"] = competitor_matching.filter_competitors(
+                my_business={
+                    "name": google_data.get("name", ""),
+                    "category": biz.get("category", ""),
+                    "price_level": google_data.get("price_level"),
+                },
+                competitors=google_data.get("competitors", []),
+            )
+        except Exception as exc:
+            logger.warning(
+                "[generate-report] business_id=%s competitor matching skipped (non-fatal): %s",
                 business_id, exc,
             )
 
