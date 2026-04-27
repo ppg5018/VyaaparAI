@@ -11,6 +11,8 @@ from app.services import competitor_matching
 from app.services.competitor_matching import (
     ME_KEY,
     filter_by_review_count,
+    filter_by_primary_type,
+    filter_by_name_keywords,
     filter_by_price_tier,
     filter_by_subcategory,
     filter_competitors,
@@ -55,6 +57,73 @@ check(out == [], "3. Empty input", out)
 
 out = filter_by_review_count([{"name": "Z", "review_count": 100}], min_reviews=200)
 check(out == [], "4. Custom threshold respected", out)
+
+
+# ── filter_by_primary_type ───────────────────────────────────────────────────
+
+print("\n=== filter_by_primary_type ===")
+
+comps = [
+    {"name": "Naturals",   "types": ["ice_cream_shop", "food", "establishment"]},
+    {"name": "RestoA",     "types": ["restaurant", "food", "establishment"]},
+    {"name": "Empty",      "types": []},
+    {"name": "MissingKey"},
+    {"name": "Bakery",     "types": ["bakery", "food"]},
+]
+out = filter_by_primary_type(comps, my_category="restaurant")
+check(
+    set(n["name"] for n in out) == {"RestoA", "Empty", "MissingKey"},
+    "1. Restaurant: drops ice_cream_shop and bakery, keeps restaurant + empty/missing types",
+    [n["name"] for n in out],
+)
+
+out = filter_by_primary_type([{"name": "Beer Hub", "types": ["bar", "food"]}], my_category="cafe")
+check(out == [], "2. Cafe: bar primary type excluded", out)
+
+out = filter_by_primary_type(
+    [{"name": "Whatever", "types": ["restaurant"]}, {"name": "Other", "types": ["bakery"]}],
+    my_category="manufacturing",
+)
+check(len(out) == 2, "3. Category not in map (manufacturing) → no exclusions, all pass", len(out))
+
+# Secondary types should NOT trigger exclusion — only primary (first element)
+out = filter_by_primary_type(
+    [{"name": "PrimaryRestaurant", "types": ["restaurant", "ice_cream_shop", "food"]}],
+    my_category="restaurant",
+)
+check(len(out) == 1, "4. Only primary type matters (ice_cream_shop in 2nd slot is ignored)", len(out))
+
+out = filter_by_primary_type([], my_category="restaurant")
+check(out == [], "5. Empty input", out)
+
+
+# ── filter_by_name_keywords ──────────────────────────────────────────────────
+
+print("\n=== filter_by_name_keywords ===")
+
+cases = [
+    ("Naturals Ice Cream",      "restaurant", False, "drops ice cream"),
+    ("Monginis Cake Shop",      "restaurant", False, "drops cake"),
+    ("CCD - Café Coffee Day",   "restaurant", False, "drops cafe"),
+    ("Sharma Sweets",           "restaurant", False, "drops sweets"),
+    ("NATURALS ICE CREAM",      "restaurant", False, "case-insensitive"),
+    ("Hotel Sharma",            "restaurant", True,  "Indian 'hotel' = restaurant, kept"),
+    ("Sharma's Kitchen",        "restaurant", True,  "no keyword match, kept"),
+    ("Punjabi Dhaba",           "restaurant", True,  "dhaba = restaurant, kept"),
+    ("Apollo Pharmacy",         "cafe",       False, "drops pharmacy keyword"),
+    ("MedPlus Chemist",         "retail",     False, "drops chemist for retail"),
+]
+
+for i, (name, category, expect_kept, label) in enumerate(cases, start=1):
+    out = filter_by_name_keywords([{"name": name}], my_category=category)
+    actual_kept = len(out) == 1
+    check(actual_kept == expect_kept, f"{i}. '{name}' for '{category}' — {label}", out)
+
+out = filter_by_name_keywords([{"name": "X"}], my_category="manufacturing")
+check(len(out) == 1, "11. Category with no blocklist → no filtering", out)
+
+out = filter_by_name_keywords([], my_category="restaurant")
+check(out == [], "12. Empty input", out)
 
 
 # ── filter_by_price_tier ─────────────────────────────────────────────────────
@@ -237,6 +306,54 @@ check(
     set(names(out)) == {"Match", "Unknown"},
     "7. Empty tags → only review+price filters survive; None-price kept",
     names(out),
+)
+
+# Test 8: type/name filters drop bakery + ice-cream BEFORE Haiku is called.
+# This is the bug the new signals fix: businesses Google lists under "restaurant"
+# that are clearly something else.
+_tag_calls["count"] = 0
+competitor_matching.tag_subcategories = _stub_tags
+out = filter_competitors(
+    my_business={"name": "Sharma Restaurant", "category": "restaurant", "price_level": 2},
+    competitors=[
+        {"name": "Naturals Ice Cream", "place_id": "p1", "review_count": 200, "rating": 4.5, "price_level": 2, "types": ["ice_cream_shop", "food"]},
+        {"name": "Monginis Cake Shop", "place_id": "p2", "review_count": 200, "rating": 4.4, "price_level": 2, "types": ["bakery", "food"]},
+        {"name": "Punjab Grill",       "place_id": "p3", "review_count": 200, "rating": 4.2, "price_level": 2, "types": ["restaurant", "food"]},
+        {"name": "Sharma Sweets",      "place_id": "p4", "review_count": 200, "rating": 4.6, "price_level": 2, "types": ["restaurant", "food"]},
+        {"name": "Real Restaurant",    "place_id": "p5", "review_count": 200, "rating": 4.0, "price_level": 2, "types": ["restaurant", "food"]},
+    ],
+)
+check(
+    set(names(out)) == {"Punjab Grill", "Real Restaurant"},
+    "8. Type filter drops Naturals/Monginis; name filter drops Sharma Sweets — only true restaurants kept",
+    names(out),
+)
+
+# Test 9: type+name filter wipes everyone → return empty (caller handles 65 neutral)
+_tag_calls["count"] = 0
+out = filter_competitors(
+    my_business={"name": "Me", "category": "restaurant", "price_level": 2},
+    competitors=[
+        {"name": "Naturals Ice Cream",  "place_id": "p1", "review_count": 200, "rating": 4.5, "price_level": 2, "types": ["ice_cream_shop", "food"]},
+        {"name": "Monginis Bakery",     "place_id": "p2", "review_count": 200, "rating": 4.4, "price_level": 2, "types": ["bakery", "food"]},
+    ],
+)
+check(out == [], "9. Type+name wipe → empty list (caller falls back to neutral 65)", out)
+check(_tag_calls["count"] == 0, "10. Haiku not called when type+name filter wipes the list", _tag_calls["count"])
+
+# Test 11: unknown category → type/name maps absent → fallthrough behaviour
+_tag_calls["count"] = 0
+out = filter_competitors(
+    my_business={"name": "Me", "category": "unknown_category", "price_level": None},
+    competitors=[
+        {"name": "Naturals Ice Cream", "place_id": "p1", "review_count": 200, "rating": 4.5, "price_level": 2, "types": ["ice_cream_shop"]},
+        {"name": "Whatever",           "place_id": "p2", "review_count": 200, "rating": 4.0, "price_level": 2, "types": ["restaurant"]},
+    ],
+)
+check(
+    len(out) == 2,
+    "11. Unknown category: no type/name exclusions; price=None keeps all; sub-cat vocab missing → no filter",
+    len(out),
 )
 
 # Restore original tagger

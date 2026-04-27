@@ -1,19 +1,24 @@
 """
-Smarter competitor matching: review-count threshold, price-tier filter, and
-sub-category tagging via Haiku.
+Smarter competitor matching — five-signal relevance filter.
 
-Replaces the old radius+category-only match with a tiered approach that avoids
-the "premium business punished by cheap competition" failure mode and the
-inverse "cheap kirana benchmarked against high-end supermarkets" mode.
+Replaces the old radius+category-only match. Catches:
+  - the "premium business punished by cheap competition" failure mode,
+  - the inverse "cheap kirana benchmarked against high-end supermarkets",
+  - and the "Naturals Ice Cream listed under restaurant in Google's types" mess.
 
-Filters applied (in order):
-  1. review_count >= MIN_COMPETITOR_REVIEWS
-  2. |price_level - my_price_level| <= PRICE_TIER_TOLERANCE  (None price kept)
-  3. sub_category == my_sub_category  (Haiku-tagged in one batch call)
+Signals applied in order of cost (cheapest first), so we discard obvious
+mismatches before paying for the Haiku call:
+  1. review_count >= MIN_COMPETITOR_REVIEWS                        (statistical validity)
+  2. competitor's primary Google type not in CATEGORY_EXCLUSION_MAP (deterministic)
+  3. competitor's name does not contain a NAME_EXCLUSION_KEYWORDS keyword (deterministic)
+  4. |price_level - my_price_level| <= PRICE_TIER_TOLERANCE         (None kept — sparse data)
+  5. sub_category == my_sub_category                                (Haiku-tagged batch call)
 
-If price+sub-category strips the list below MIN_COMPETITORS_AFTER_FILTER, the
-strict pair is dropped and only the review-count filter remains, so the
-downstream competitor_score never collapses to the no-competitors neutral.
+Hard signals (1-4) excluding everyone is treated as legitimate — the caller's
+competitor_score() falls back to NO_COMPETITORS_NEUTRAL = 65 when given an
+empty list. Soft signal (5) over-stripping below MIN_COMPETITORS_AFTER_FILTER
+is rolled back to the price+name+type set so a Haiku misclassification can't
+collapse the score.
 """
 from __future__ import annotations
 
@@ -30,6 +35,8 @@ from app.config import (
     PRICE_TIER_TOLERANCE,
     MIN_COMPETITORS_AFTER_FILTER,
     SUBCATEGORIES_BY_CATEGORY,
+    CATEGORY_EXCLUSION_MAP,
+    NAME_EXCLUSION_KEYWORDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +50,53 @@ def filter_by_review_count(
 ) -> list[dict]:
     """Drop competitors whose rating is not statistically meaningful."""
     return [c for c in competitors if c.get("review_count", 0) >= min_reviews]
+
+
+def filter_by_primary_type(
+    competitors: list[dict],
+    my_category: str,
+) -> list[dict]:
+    """Drop competitors whose primary Google `types` entry is excluded for my_category.
+
+    Each competitor's `types` is the array Google returns from places_nearby —
+    the first element is the most specific type. Empty `types` is kept (don't
+    punish missing data). Categories without a CATEGORY_EXCLUSION_MAP entry
+    receive no filtering.
+    """
+    exclusions = CATEGORY_EXCLUSION_MAP.get(my_category, set())
+    if not exclusions:
+        return list(competitors)
+
+    kept = []
+    for c in competitors:
+        types = c.get("types") or []
+        if types and types[0] in exclusions:
+            continue
+        kept.append(c)
+    return kept
+
+
+def filter_by_name_keywords(
+    competitors: list[dict],
+    my_category: str,
+) -> list[dict]:
+    """Drop competitors whose name contains a NAME_EXCLUSION_KEYWORDS keyword.
+
+    Substring match is case-insensitive. Catches the "Monginis Cake Shop" listed
+    under restaurant in Google's types — the name betrays it as a bakery.
+    Categories without a NAME_EXCLUSION_KEYWORDS entry receive no filtering.
+    """
+    blocklist = NAME_EXCLUSION_KEYWORDS.get(my_category, [])
+    if not blocklist:
+        return list(competitors)
+
+    kept = []
+    for c in competitors:
+        name_lower = (c.get("name") or "").lower()
+        if any(kw in name_lower for kw in blocklist):
+            continue
+        kept.append(c)
+    return kept
 
 
 def filter_by_price_tier(
@@ -185,17 +239,26 @@ def filter_competitors(
     my_business: dict,
     competitors: list[dict],
 ) -> list[dict]:
-    """Apply all three filters and return the matched competitor list.
+    """Apply all five signals and return the matched competitor list.
 
-    Cascade:
-      - review-count and price-tier are hard signals; always applied. If a
-        hard filter wipes the list it's relaxed (rare data-sparsity case).
-      - sub-category is Haiku-tagged → soft signal. Dropped only if it strips
-        below MIN_COMPETITORS_AFTER_FILTER, so a misclassification doesn't
-        collapse competitor_score to the no-competitors neutral.
+    Order is cheapest-first so we discard obvious mismatches before paying
+    for the Haiku call.
+
+    Hard signals — review-count, primary type, name keywords, price-tier —
+    are trusted: if they exclude everyone, the empty list is returned and
+    the caller's competitor_score() falls back to NO_COMPETITORS_NEUTRAL.
+    Exceptions: review-count wiping all → keep originals (a market with no
+    20+ review competitors still has signal); price-tier wiping all → relax
+    just price (sparse data, not a categorical mismatch).
+
+    Soft signal — Haiku sub-category — over-stripping below
+    MIN_COMPETITORS_AFTER_FILTER rolls back to the previous (price+name+type)
+    set so a Haiku misclassification can't collapse the score.
     """
     if not competitors:
         return []
+
+    category = my_business.get("category", "")
 
     by_reviews = filter_by_review_count(competitors)
     if not by_reviews:
@@ -205,16 +268,26 @@ def filter_competitors(
         )
         return list(competitors)
 
-    by_price = filter_by_price_tier(by_reviews, my_business.get("price_level"))
+    by_type = filter_by_primary_type(by_reviews, category)
+    by_name = filter_by_name_keywords(by_type, category)
+
+    if not by_name:
+        logger.warning(
+            "[competitor_matching] type+name filter excluded all %d competitors for category=%s — caller will use neutral score",
+            len(by_reviews), category,
+        )
+        return []
+
+    by_price = filter_by_price_tier(by_name, my_business.get("price_level"))
     if not by_price:
         logger.info(
             "[competitor_matching] price tier wiped all %d remaining — relaxing price filter",
-            len(by_reviews),
+            len(by_name),
         )
-        by_price = by_reviews
+        by_price = by_name
 
     tags = tag_subcategories(
-        parent_category=my_business.get("category", ""),
+        parent_category=category,
         my_name=my_business.get("name", ""),
         competitors=by_price,
     )
@@ -228,7 +301,7 @@ def filter_competitors(
         return by_subcat
 
     logger.info(
-        "[competitor_matching] sub-category filter left only %d (< %d) — relaxing to price+review only (%d)",
+        "[competitor_matching] sub-category filter left only %d (< %d) — relaxing to price+name+type set (%d)",
         len(by_subcat), MIN_COMPETITORS_AFTER_FILTER, len(by_price),
     )
     return by_price

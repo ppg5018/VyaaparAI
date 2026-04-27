@@ -204,6 +204,7 @@ def get_nearby_competitors(
             "review_count": int(place.get("user_ratings_total", 0)),
             "place_id": pid,
             "price_level": price_level,
+            "types": place.get("types", []),
         })
 
     competitors.sort(key=lambda c: c["rating"], reverse=True)

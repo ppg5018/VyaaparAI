@@ -73,6 +73,67 @@ MIN_COMPETITOR_REVIEWS = 20   # exclude competitors below this — ratings not s
 PRICE_TIER_TOLERANCE = 1      # keep competitors within ±N price levels of my own
 MIN_COMPETITORS_AFTER_FILTER = 3   # if filters strip below this, fall back to the unfiltered set
 
+# Google primary types that are excluded when comparing against each user category.
+# Catches the "Indian dhaba listed under restaurant + ice cream parlour also under restaurant" problem.
+CATEGORY_EXCLUSION_MAP: dict[str, set[str]] = {
+    "restaurant": {
+        "ice_cream_shop", "bakery", "cafe", "meal_takeaway", "meal_delivery",
+        "convenience_store", "supermarket", "grocery_or_supermarket",
+        "liquor_store", "bar", "night_club",
+    },
+    "cafe": {
+        "ice_cream_shop", "liquor_store", "bar", "night_club",
+        "grocery_or_supermarket", "pharmacy",
+    },
+    "retail": {
+        "pharmacy", "bank", "atm", "gas_station",
+        "restaurant", "cafe", "hospital", "doctor",
+    },
+    "pharmacy": {
+        "convenience_store", "supermarket", "grocery_or_supermarket",
+        "restaurant", "cafe", "liquor_store",
+    },
+    "grocery": {
+        "restaurant", "cafe", "pharmacy", "bank", "atm", "gas_station",
+    },
+}
+
+# Name keywords (case-insensitive substring match) that indicate a competitor
+# is a different business type than what Google's `types` field suggests.
+# Keep keywords specific — generic terms like "shop" or "store" cause false positives.
+NAME_EXCLUSION_KEYWORDS: dict[str, list[str]] = {
+    "restaurant": [
+        # Ice cream
+        "ice cream", "icecream", "naturals", "baskin", "robbins",
+        "kwality", "softy", "gelato", "frozen yogurt", "kulfi",
+        # Bakery / cake
+        "bakery", "bakers", "cake", "monginis", "bread", "patisserie",
+        "pastry", "muffin", "brownie",
+        # Sweets / mithai
+        "sweets", "sweet shop", "mithai", "halwai", "namkeen",
+        "ladoo", "rasgulla", "halwa",
+        # Café / coffee
+        "café", "cafe", "coffee", "starbucks", "ccd", "barista",
+        "tea house", "chai",
+        # Juice / beverages
+        "juice bar", "juice center", "lassi",
+        # Pan / tobacco
+        "pan shop", "paan",
+    ],
+    "cafe": [
+        "liquor", "wine", "beer", "bar", "pub", "brewery",
+        "pharmacy", "chemist", "medical",
+    ],
+    "retail": [
+        "pharmacy", "chemist", "hospital", "clinic",
+        "bank", "atm", "petrol", "fuel",
+    ],
+    "pharmacy": [
+        "restaurant", "dhaba", "hotel", "café", "cafe",
+        "sweets", "bakery",
+    ],
+}
+
 # Sub-category vocabulary per parent category. Haiku picks one tag per business.
 # Keep lists short — too many options dilutes Haiku's accuracy.
 SUBCATEGORIES_BY_CATEGORY: dict[str, list[str]] = {
