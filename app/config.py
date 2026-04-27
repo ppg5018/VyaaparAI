@@ -15,8 +15,12 @@ APIFY_REVIEWS_ACTOR = "compass~google-maps-reviews-scraper"
 REVIEW_CACHE_TTL_DAYS_OWN = 7         # Re-sync user's own reviews weekly
 REVIEW_CACHE_TTL_DAYS_COMPETITOR = 30 # Re-sync competitor reviews monthly
 
-# Review time-decay
+# Review time-decay (kept for weighted-count fallback)
 REVIEW_HALFLIFE_MONTHS = 6  # months at which a review's volume weight drops to 0.5
+
+# Review velocity scoring
+REVIEW_VELOCITY_LOOKBACK_MONTHS = 6   # window for rate calculation
+REVIEW_VELOCITY_FULL_MARKS_RATE = 8.0 # reviews/month at which velocity scores full 25 pts
 
 # Claude models
 CLAUDE_MODEL = "claude-sonnet-4-20250514"

@@ -34,7 +34,15 @@ def insight_count(business_data: dict, pos_signals: dict) -> int:
     return min(MAX_INSIGHTS, score)
 
 
-def build_prompt(business_data: dict, scores: dict, pos_signals: dict, count: int, dominant_complaint: str | None = None) -> str:
+def build_prompt(
+    business_data: dict,
+    scores: dict,
+    pos_signals: dict,
+    count: int,
+    dominant_complaint: str | None = None,
+    reviews_per_month: float | None = None,
+    photo_count: int = 0,
+) -> str:
     """Assemble the full Claude prompt from business data, scores, and POS signals."""
     name = business_data.get("name", "Unknown Business")
     rating = business_data.get("rating", 0.0)
@@ -88,6 +96,17 @@ def build_prompt(business_data: dict, scores: dict, pos_signals: dict, count: in
     else:
         complaint_line = "Dominant complaint topic: insufficient data"
 
+    velocity_str = (
+        f"{reviews_per_month:.1f} reviews/month (last 6 months)"
+        if reviews_per_month is not None
+        else "unknown"
+    )
+    photo_str = (
+        "0 — no photos on Google Maps (visibility risk)"
+        if photo_count == 0
+        else f"{photo_count} photos on Google Maps"
+    )
+
     return f"""You are a business advisor for Indian MSME owners. Be specific, not generic.
 Always name specific products and competitors. Never say "some products" or
 "nearby competitors". Actions must cost under ₹2,000 and take under 3 hours.
@@ -110,6 +129,8 @@ Average order value: {aov_str}
 
 Review analysis (Claude-rated sentiment, not raw stars):
 {complaint_line}
+Review velocity: {velocity_str}
+Google Maps photos: {photo_str}
 
 Generate exactly {count} insights and 1 action.
 Each insight must:
@@ -164,7 +185,14 @@ def _parse_and_validate(response_text: str, expected_count: int) -> dict:
     return result
 
 
-def generate_insights(business_data: dict, scores: dict, pos_signals: dict, dominant_complaint: str | None = None) -> dict:
+def generate_insights(
+    business_data: dict,
+    scores: dict,
+    pos_signals: dict,
+    dominant_complaint: str | None = None,
+    reviews_per_month: float | None = None,
+    photo_count: int = 0,
+) -> dict:
     """Call Claude API, parse JSON insights, retry once on parse failure.
 
     Returns: {"insights": [str, str, str], "action": str}
@@ -174,7 +202,7 @@ def generate_insights(business_data: dict, scores: dict, pos_signals: dict, domi
         RuntimeError: if both attempts fail to produce valid JSON.
     """
     count = insight_count(business_data, pos_signals)
-    prompt = build_prompt(business_data, scores, pos_signals, count, dominant_complaint)
+    prompt = build_prompt(business_data, scores, pos_signals, count, dominant_complaint, reviews_per_month, photo_count)
     response_text = None
 
     try:

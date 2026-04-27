@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from app.models import Competitor, CompetitorAnalysis, ReportResponse, Review, SubScores
 from app.database import supabase
 from app.services import apify_reviews, competitor_analysis, google_places, health_score, insights, pos_pipeline, review_classifier
+from app.services.health_score import compute_velocity
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,9 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         )
         if dt is not None
     ]
+    reviews_per_month = compute_velocity(dated_reviews) if dated_reviews else None
+    photo_count = google_data.get("photo_count", 0)
+
     r_score = health_score.review_score(
         rating=google_data["rating"],
         total_reviews=google_data["total_reviews"],
@@ -158,6 +162,8 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
             scores=score_result,
             pos_signals=signals,
             dominant_complaint=dominant_complaint,
+            reviews_per_month=reviews_per_month,
+            photo_count=photo_count,
         )
     except RuntimeError as exc:
         logger.error(
@@ -194,6 +200,8 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         ),
         google_rating=google_data["rating"],
         total_reviews=google_data["total_reviews"],
+        reviews_per_month=reviews_per_month,
+        photo_count=photo_count,
         reviews=[
             Review(
                 rating=r["rating"],

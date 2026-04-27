@@ -21,6 +21,10 @@ _PLACE_FIELDS = [
     "geometry",
     "business_status",
     "formatted_address",
+    "photos",
+    # NOTE: "popular_times" is not available in any official Google Places API.
+    # That data is shown in the Maps UI but is never exposed via an API field.
+    # To get it, a third-party scraper (e.g. Apify populartimes actor) is needed.
 ]
 
 _CATEGORY_TYPE_MAP = {
@@ -105,6 +109,9 @@ def get_business_details(place_id: str) -> dict:
         )
 
     geo = result.get("geometry", {}).get("location", {})
+    # Google returns up to 10 photo references — count is a proxy for visual
+    # engagement. Recency is not available via the API (no timestamps on photos).
+    photo_count = len(result.get("photos") or [])
     return {
         "name": result.get("name", ""),
         "rating": float(result.get("rating", 0.0)),
@@ -114,6 +121,7 @@ def get_business_details(place_id: str) -> dict:
         "address": result.get("formatted_address", ""),
         "business_status": business_status,
         "raw_reviews": result.get("reviews", []),
+        "photo_count": photo_count,
     }
 
 
@@ -278,6 +286,7 @@ def fetch_all_data(place_id: str, category: str) -> dict:
         "lng": details["lng"],
         "address": details["address"],
         "business_status": details["business_status"],
+        "photo_count": details.get("photo_count", 0),
         "reviews": reviews,
         "competitors": competitors,
     }

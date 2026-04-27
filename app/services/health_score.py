@@ -1,6 +1,6 @@
 import math
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.config import (
     REVIEW_WEIGHT,
@@ -11,6 +11,8 @@ from app.config import (
     NO_COMPETITORS_NEUTRAL,
     NO_POS_DATA_NEUTRAL,
     REVIEW_HALFLIFE_MONTHS,
+    REVIEW_VELOCITY_LOOKBACK_MONTHS,
+    REVIEW_VELOCITY_FULL_MARKS_RATE,
     CATEGORY_POS_THRESHOLDS,
     DEFAULT_POS_THRESHOLDS,
 )
@@ -18,6 +20,34 @@ from app.config import (
 logger = logging.getLogger(__name__)
 
 _DAYS_PER_MONTH = 30.44
+
+
+def compute_velocity(dated_reviews: list, now: datetime | None = None) -> float:
+    """Return reviews per month over the last REVIEW_VELOCITY_LOOKBACK_MONTHS.
+
+    dated_reviews: list of dicts with a ``published_at`` datetime field.
+    Returns 0.0 if no dated reviews are provided.
+    """
+    if not dated_reviews:
+        return 0.0
+    if now is None:
+        now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=REVIEW_VELOCITY_LOOKBACK_MONTHS * _DAYS_PER_MONTH)
+    count = 0
+    for r in dated_reviews:
+        pub = r.get("published_at") if isinstance(r, dict) else None
+        if not isinstance(pub, datetime):
+            continue
+        if pub.tzinfo is None:
+            pub = pub.replace(tzinfo=timezone.utc)
+        if pub >= cutoff:
+            count += 1
+    return count / REVIEW_VELOCITY_LOOKBACK_MONTHS
+
+
+def _velocity_pts(velocity: float) -> float:
+    """Map reviews/month to 0–25 pts. Full marks at REVIEW_VELOCITY_FULL_MARKS_RATE."""
+    return min(25.0, (velocity / REVIEW_VELOCITY_FULL_MARKS_RATE) * 25.0)
 
 
 def _weighted_review_count(
@@ -75,10 +105,15 @@ def review_score(
     if all_reviews_with_dates:
         if now is None:
             now = datetime.now(timezone.utc)
-        weighted_count = _weighted_review_count(
-            all_reviews_with_dates, now, REVIEW_HALFLIFE_MONTHS
+        # Velocity (reviews/month) is a stronger health signal than raw count.
+        # An active business getting 8+ reviews/month scores full 25 pts; one
+        # getting 1 review every other month scores ~3 pts.
+        velocity = compute_velocity(all_reviews_with_dates, now)
+        volume_pts = _velocity_pts(velocity)
+        logger.debug(
+            "review_score: velocity=%.2f reviews/month → volume_pts=%.1f",
+            velocity, volume_pts,
         )
-        volume_pts = min(25, math.log10(max(weighted_count, 1)) * 10)
     else:
         volume_pts = min(25, math.log10(max(total_reviews, 1)) * 10)
 

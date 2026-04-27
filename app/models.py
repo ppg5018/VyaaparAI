@@ -90,6 +90,8 @@ class ReportResponse(BaseModel):
     sub_scores: SubScores
     google_rating: float
     total_reviews: int
+    reviews_per_month: float | None = None
+    photo_count: int = 0
     reviews: list[Review]
     competitors: list[Competitor]
     insights: list[str]
