@@ -32,7 +32,9 @@ def review_score(rating: float, total_reviews: int, recent_reviews: list) -> int
     if not recent_reviews:
         trend_pts = 10
     else:
-        recent_avg = sum(r["rating"] for r in recent_reviews) / len(recent_reviews)
+        # Use up to 50 most recent reviews for a more stable trend signal
+        sample = recent_reviews[:50]
+        recent_avg = sum(r["rating"] for r in sample) / len(sample)
         trend_pts = (recent_avg / 5.0) * 20
 
     total = int(quality_pts + volume_pts + trend_pts)

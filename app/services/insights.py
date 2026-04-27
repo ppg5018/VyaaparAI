@@ -42,13 +42,15 @@ def build_prompt(business_data: dict, scores: dict, pos_signals: dict, count: in
     final_score = scores.get("final_score", 0)
     band = scores.get("band", "unknown")
 
-    reviews = business_data.get("reviews", [])[:3]
+    all_reviews = business_data.get("reviews", [])
+    reviews = all_reviews[:50]  # send up to 50 reviews to Claude
     if reviews:
         snippets = [
-            f"- {r['rating']}★ ({r.get('relative_time', 'recently')}): {r['text']}"
+            f"- {r['rating']}★ ({r.get('relative_time', 'recently')}): {r['text'][:300]}"
             for r in reviews
+            if r.get("text", "").strip()
         ]
-        review_snippets = "\n".join(snippets)
+        review_snippets = "\n".join(snippets) if snippets else "No review text available"
     else:
         review_snippets = "No reviews available"
 
@@ -88,7 +90,7 @@ Business: {name}
 Rating: {rating}/5 ({total_reviews} reviews)
 Health score: {final_score}/100 (band: {band})
 
-Last 3 reviews:
+Last {len(reviews)} reviews (newest first):
 {review_snippets}
 
 Top 3 nearby competitors (within 800m):
