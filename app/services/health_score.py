@@ -11,6 +11,8 @@ from app.config import (
     NO_COMPETITORS_NEUTRAL,
     NO_POS_DATA_NEUTRAL,
     REVIEW_HALFLIFE_MONTHS,
+    CATEGORY_POS_THRESHOLDS,
+    DEFAULT_POS_THRESHOLDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -137,8 +139,34 @@ def competitor_score(my_rating: float, competitors: list) -> int:
     return result
 
 
-def pos_score(signals: dict) -> int:
-    """Compute 0-100 POS health score from revenue trend, inventory, and AOV signals."""
+def _revenue_pts(trend: float, thresholds: dict) -> float:
+    """Map a revenue trend % to 0–50 pts using category-specific bands.
+
+    Two linear zones:
+      [growth_neutral, growth_full]  → 25–50 pts  (good-to-great range)
+      [growth_floor,   growth_neutral] → 0–25 pts  (bad-to-acceptable range)
+    """
+    gf  = thresholds["growth_full"]
+    gn  = thresholds["growth_neutral"]
+    gfl = thresholds["growth_floor"]
+
+    if trend >= gf:
+        return 50.0
+    if trend >= gn:
+        span = gf - gn
+        return 25.0 + 25.0 * (trend - gn) / span if span else 25.0
+    if trend >= gfl:
+        span = gn - gfl
+        return 25.0 * (trend - gfl) / span if span else 0.0
+    return 0.0
+
+
+def pos_score(signals: dict, category: str = "") -> int:
+    """Compute 0-100 POS health score from revenue trend, inventory, and AOV signals.
+
+    Uses category-specific growth bands and slow thresholds so a pharmacy
+    staying flat is not penalised the same as a retail store staying flat.
+    """
     if not signals:
         return NO_POS_DATA_NEUTRAL
 
@@ -148,18 +176,10 @@ def pos_score(signals: dict) -> int:
         logger.debug("pos_score: no revenue_trend_pct — returning neutral %d", NO_POS_DATA_NEUTRAL)
         return NO_POS_DATA_NEUTRAL
 
+    thresholds = CATEGORY_POS_THRESHOLDS.get(category, DEFAULT_POS_THRESHOLDS)
+
     # Revenue trend (0–50)
-    if trend >= 10:
-        revenue_pts = 50
-    elif trend >= 0:
-        revenue_pts = 40 + trend
-    elif trend >= -10:
-        revenue_pts = 40 + (trend * 2)
-    elif trend >= -30:
-        revenue_pts = 20 + ((trend + 10) * 1)
-    else:
-        revenue_pts = 0
-    revenue_pts = max(0, min(50, revenue_pts))
+    revenue_pts = max(0.0, min(50.0, _revenue_pts(trend, thresholds)))
 
     # Inventory health (0–30)
     slow_count = len(signals.get("slow_categories", []))
@@ -187,8 +207,8 @@ def pos_score(signals: dict) -> int:
     result = max(0, min(100, total))
 
     logger.debug(
-        "pos_score: trend=%.1f rev=%.1f inv=%d aov=%d → %d",
-        trend, revenue_pts, inventory_pts, aov_pts, result,
+        "pos_score: category=%s trend=%.1f rev=%.1f inv=%d aov=%d → %d",
+        category, trend, revenue_pts, inventory_pts, aov_pts, result,
     )
 
     return result

@@ -36,11 +36,28 @@ NO_COMPETITORS_NEUTRAL = 65
 NO_POS_DATA_NEUTRAL = 50
 
 # POS pipeline
-# 0.35 catches biz_003 Snacks whose slow_factor is exactly 0.30
-SLOW_THRESHOLD = 0.35
 MIN_REVENUE_PER_DAY_FOR_SLOW_FLAG = 50.0
 AOV_CHANGE_THRESHOLD_PCT = 5
 BATCH_SIZE = 500
+
+# Category-specific POS thresholds
+# growth_full:    trend % at which revenue_pts maxes out (50 pts)
+# growth_neutral: trend % where revenue_pts is at midpoint (25 pts) — "acceptable floor"
+# growth_floor:   trend % below which revenue_pts is 0
+# slow_threshold: ratio of recent_avg/prior_avg below which a category is flagged slow
+CATEGORY_POS_THRESHOLDS: dict[str, dict] = {
+    "restaurant":    {"growth_full": 15, "growth_neutral":  -5, "growth_floor": -30, "slow_threshold": 0.40},
+    "cafe":          {"growth_full": 15, "growth_neutral":  -5, "growth_floor": -30, "slow_threshold": 0.40},
+    "pharmacy":      {"growth_full":  8, "growth_neutral":  -2, "growth_floor": -20, "slow_threshold": 0.50},
+    "medical":       {"growth_full":  8, "growth_neutral":  -2, "growth_floor": -20, "slow_threshold": 0.50},
+    "retail":        {"growth_full": 20, "growth_neutral": -10, "growth_floor": -40, "slow_threshold": 0.30},
+    "grocery":       {"growth_full": 20, "growth_neutral": -10, "growth_floor": -40, "slow_threshold": 0.30},
+    "manufacturing": {"growth_full": 30, "growth_neutral": -20, "growth_floor": -50, "slow_threshold": 0.25},
+    "distributor":   {"growth_full": 30, "growth_neutral": -20, "growth_floor": -50, "slow_threshold": 0.25},
+}
+DEFAULT_POS_THRESHOLDS: dict = {
+    "growth_full": 10, "growth_neutral": 0, "growth_floor": -30, "slow_threshold": 0.35
+}
 
 # Google Places
 COMPETITOR_RADIUS_METERS = 800

@@ -5,7 +5,8 @@ import pandas as pd
 
 from app.database import supabase
 from app.config import (
-    SLOW_THRESHOLD,
+    CATEGORY_POS_THRESHOLDS,
+    DEFAULT_POS_THRESHOLDS,
     MIN_REVENUE_PER_DAY_FOR_SLOW_FLAG,
     AOV_CHANGE_THRESHOLD_PCT,
     BATCH_SIZE,
@@ -164,7 +165,7 @@ def ingest_pos_csv(filepath: str, business_id: str) -> int:
     return total_inserted
 
 
-def pos_signals(business_id: str, days: int = 30) -> dict:
+def pos_signals(business_id: str, days: int = 30, category: str = "") -> dict:
     """Compute 4 POS signals for the last N days of data.
 
     Always returns a dict with keys:
@@ -219,6 +220,9 @@ def pos_signals(business_id: str, days: int = 30) -> dict:
     # Slow categories — compare last 14 days vs prior period (days 30–60 ago)
     slow_cats: list[str] = []
     try:
+        thresholds = CATEGORY_POS_THRESHOLDS.get(category, DEFAULT_POS_THRESHOLDS)
+        slow_threshold = thresholds["slow_threshold"]
+
         last_14_cutoff = pd.Timestamp(today - timedelta(days=14))
         prior_slow_end = pd.Timestamp(today - timedelta(days=days))
 
@@ -238,10 +242,14 @@ def pos_signals(business_id: str, days: int = 30) -> dict:
             cat_recent = recent_14_df[recent_14_df["product_category"] == cat]["revenue"].sum()
             recent_avg = cat_recent / RECENT_DAYS
 
-            if recent_avg < SLOW_THRESHOLD * prior_avg:
+            if recent_avg < slow_threshold * prior_avg:
                 slow_cats.append(cat)
 
         slow_cats = sorted(slow_cats)[:5]
+        logger.debug(
+            "slow_categories: category=%s slow_threshold=%.2f flagged=%s",
+            category, slow_threshold, slow_cats,
+        )
     except Exception as exc:
         logger.warning("slow_categories computation failed: %s", exc)
         slow_cats = []

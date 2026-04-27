@@ -107,7 +107,7 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
             )
 
     # 3. POS signals — never raises
-    signals = pos_pipeline.pos_signals(business_id, days=30)
+    signals = pos_pipeline.pos_signals(business_id, days=30, category=biz.get("category", ""))
 
     # 4. Classify reviews with Haiku — never raises, falls back to star ratings
     classified = []
@@ -146,7 +146,7 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         my_rating=google_data["rating"],
         competitors=google_data["competitors"],
     )
-    p_score = health_score.pos_score(signals)
+    p_score = health_score.pos_score(signals, category=biz.get("category", ""))
 
     # 6. Final score + band
     score_result = health_score.calculate_health_score(r_score, c_score, p_score)
