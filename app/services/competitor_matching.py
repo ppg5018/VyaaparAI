@@ -34,6 +34,7 @@ from app.config import (
     MIN_COMPETITOR_REVIEWS,
     CATEGORY_MIN_COMPETITOR_REVIEWS,
     PRICE_TIER_TOLERANCE,
+    PRICE_TIER_RELEVANT_CATEGORIES,
     MIN_COMPETITORS_AFTER_FILTER,
     SUBCATEGORIES_BY_CATEGORY,
     CATEGORY_EXCLUSION_MAP,
@@ -103,14 +104,24 @@ def filter_by_name_keywords(
 def filter_by_price_tier(
     competitors: list[dict],
     my_price_level: int | None,
+    my_category: str = "",
     tolerance: int = PRICE_TIER_TOLERANCE,
 ) -> list[dict]:
     """Keep competitors within ±tolerance price levels of my own.
 
-    Competitors with `price_level=None` are kept — Google Places price data is
-    sparse for Indian MSMEs, and excluding them on a missing field would throw
-    out half the list. Same for when my own price_level is missing.
+    Only applied when my_category is in PRICE_TIER_RELEVANT_CATEGORIES (food).
+    For retail / grocery / pharmacy / hardware, Google's price_level data is
+    too sparse and inconsistent to be useful — skip the filter entirely so
+    sportswear brands like Adidas (often tagged tier 3) aren't excluded when
+    the user is Nike (tagged tier 2).
+
+    Competitors with `price_level=None` are kept — even within food the data
+    is sparse, and excluding on a missing field would throw out half the list.
+    Same for when my own price_level is missing.
     """
+    if my_category not in PRICE_TIER_RELEVANT_CATEGORIES:
+        return list(competitors)
+
     if my_price_level is None:
         return list(competitors)
 
@@ -335,12 +346,7 @@ def filter_competitors(
         )
         return []
 
-    price_tier_categories = {"restaurant", "cafe"}
-    if category in price_tier_categories:
-        by_price = filter_by_price_tier(by_name, my_business.get("price_level"))
-    else:
-        by_price = by_name
-
+    by_price = filter_by_price_tier(by_name, my_business.get("price_level"), my_category=category)
     if not by_price:
         logger.info(
             "[competitor_matching] price tier wiped all %d remaining — relaxing price filter",

@@ -137,21 +137,43 @@ comps = [
     {"name": "Pricey",  "price_level": 4},
     {"name": "Unknown", "price_level": None},
 ]
-out = filter_by_price_tier(comps, my_price_level=2)
+out = filter_by_price_tier(comps, my_price_level=2, my_category="restaurant")
 check(
     set(names(out)) == {"Match", "Match2", "Unknown"},
-    "1. Keeps within ±1, drops 0 and 4 from price 2, keeps None",
+    "1. Restaurant: keeps within ±1, drops 0 and 4 from price 2, keeps None",
     names(out),
 )
 
-out = filter_by_price_tier(comps, my_price_level=None)
-check(len(out) == 5, "2. my_price_level=None → keep everyone", len(out))
+out = filter_by_price_tier(comps, my_price_level=None, my_category="restaurant")
+check(len(out) == 5, "2. Restaurant + my_price_level=None → keep everyone", len(out))
 
-out = filter_by_price_tier(comps, my_price_level=2, tolerance=2)
-check(len(out) == 5, "3. Wider tolerance keeps all in range", len(out))
+out = filter_by_price_tier(comps, my_price_level=2, my_category="restaurant", tolerance=2)
+check(len(out) == 5, "3. Restaurant + wider tolerance keeps all in range", len(out))
 
-out = filter_by_price_tier([], my_price_level=2)
+out = filter_by_price_tier([], my_price_level=2, my_category="restaurant")
 check(out == [], "4. Empty input", out)
+
+# Food-only gate — price tier is meaningless for retail/grocery/pharmacy/hardware
+# because Google's price_level data is sparse and inconsistent there.
+out = filter_by_price_tier(comps, my_price_level=2, my_category="retail")
+check(len(out) == 5, "5. Retail: filter is a no-op even with explicit price levels", len(out))
+
+out = filter_by_price_tier(comps, my_price_level=2, my_category="grocery")
+check(len(out) == 5, "6. Grocery: filter is a no-op", len(out))
+
+out = filter_by_price_tier(comps, my_price_level=2, my_category="pharmacy")
+check(len(out) == 5, "7. Pharmacy: filter is a no-op", len(out))
+
+out = filter_by_price_tier(comps, my_price_level=2, my_category="cafe")
+check(
+    set(names(out)) == {"Match", "Match2", "Unknown"},
+    "8. Cafe: price tier IS applied (food category)",
+    names(out),
+)
+
+# Default my_category="" is treated as "no signal" → no-op (safe default)
+out = filter_by_price_tier(comps, my_price_level=2)
+check(len(out) == 5, "9. Default my_category='' → no-op (safe default)", len(out))
 
 
 # ── filter_by_subcategory ────────────────────────────────────────────────────
@@ -421,6 +443,31 @@ out = filter_competitors(
 check(
     set(names(out)) == {"Genuine Footwear Shop"},
     "14. Retail name blocklist: optician/samsung/sleepwell stripped even with Haiku off",
+    names(out),
+)
+
+# Test 15: Nike-vs-Adidas — retail + sportswear, price levels diverge widely.
+# In food this would be filtered (|4-2|=2 > tolerance 1); in retail price tier
+# is a no-op so Adidas/Puma both survive, then Haiku keeps them as same-tag.
+def _stub_tags_both_footwear(parent_category, my_name, competitors):
+    _tag_calls["count"] += 1
+    tags = {ME_KEY: "footwear"}
+    for c in competitors:
+        tags[c["place_id"]] = "footwear"
+    return tags
+
+competitor_matching.tag_subcategories = _stub_tags_both_footwear
+_tag_calls["count"] = 0
+out = filter_competitors(
+    my_business={"name": "Nike", "category": "retail", "price_level": 2},
+    competitors=[
+        {"name": "Adidas", "place_id": "p1", "review_count": 100, "rating": 4.5, "price_level": 4, "types": ["shoe_store"]},
+        {"name": "Puma",   "place_id": "p2", "review_count": 100, "rating": 4.0, "price_level": 0, "types": ["shoe_store"]},
+    ],
+)
+check(
+    set(names(out)) == {"Adidas", "Puma"},
+    "15. Retail: Adidas (tier 4) and Puma (tier 0) both kept against Nike (tier 2) — price filter food-only",
     names(out),
 )
 

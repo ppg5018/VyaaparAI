@@ -85,6 +85,14 @@ CATEGORY_MIN_COMPETITOR_REVIEWS: dict[str, int] = {
 PRICE_TIER_TOLERANCE = 1      # keep competitors within ±N price levels of my own
 MIN_COMPETITORS_AFTER_FILTER = 3   # if filters strip below this, fall back to the unfiltered set
 
+# Categories where Google's `price_level` (₹ ... ₹₹₹₹) is a meaningful filter.
+# Food carries strong user-intent signal (cheap eats vs fine dining) that maps
+# cleanly to Google's 0–4 scale. For retail / grocery / pharmacy / hardware the
+# field is sparse and inconsistent (Adidas tier 3 vs Puma tier 2 despite being
+# the same market segment), so we skip price tier outside food to avoid
+# excluding genuine competitors.
+PRICE_TIER_RELEVANT_CATEGORIES: set[str] = {"restaurant", "cafe"}
+
 # Google primary types that are excluded when comparing against each user category.
 # Catches the "Indian dhaba listed under restaurant + ice cream parlour also under restaurant" problem.
 CATEGORY_EXCLUSION_MAP: dict[str, set[str]] = {
