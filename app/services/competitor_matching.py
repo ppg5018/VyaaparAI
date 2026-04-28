@@ -333,7 +333,12 @@ def filter_competitors(
         )
         return []
 
-    by_price = filter_by_price_tier(by_name, my_business.get("price_level"))
+    price_tier_categories = {"restaurant", "cafe"}
+    if category in price_tier_categories:
+        by_price = filter_by_price_tier(by_name, my_business.get("price_level"))
+    else:
+        by_price = by_name
+
     if not by_price:
         logger.info(
             "[competitor_matching] price tier wiped all %d remaining — relaxing price filter",
