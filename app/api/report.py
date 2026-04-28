@@ -113,7 +113,7 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         # 2c. Filter competitors — price tier + type + name + sub-category (Haiku)
         try:
             raw_count = len(google_data["competitors"])
-            google_data["competitors"] = competitor_matching.filter_competitors(
+            filtered = competitor_matching.filter_competitors(
                 my_business={
                     "name": google_data["name"],
                     "category": biz.get("category", ""),
@@ -121,9 +121,12 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
                 },
                 competitors=google_data["competitors"],
             )
+            # Cap after filtering so the matcher sees the full Google candidate list
+            from app.config import MAX_COMPETITORS
+            google_data["competitors"] = filtered[:MAX_COMPETITORS]
             logger.info(
-                "[generate-report] business_id=%s competitor filter: %d → %d",
-                business_id, raw_count, len(google_data["competitors"]),
+                "[generate-report] business_id=%s competitor filter: %d → %d (capped at %d)",
+                business_id, raw_count, len(google_data["competitors"]), MAX_COMPETITORS,
             )
         except Exception as exc:
             logger.warning(

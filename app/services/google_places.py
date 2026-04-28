@@ -32,7 +32,9 @@ _CATEGORY_TYPE_MAP = {
     "restaurant": "restaurant",
     "cafe": "cafe",
     "grocery": "grocery_or_supermarket",
-    "retail": "store",
+    # "store" misses shoe_store / clothing_store primary types — use establishment
+    # so the competitor matcher's sub-category filter does the narrowing instead.
+    "retail": "establishment",
     "pharmacy": "pharmacy",
     "medical": "doctor",
     "manufacturing": "establishment",
@@ -208,7 +210,9 @@ def get_nearby_competitors(
         })
 
     competitors.sort(key=lambda c: c["rating"], reverse=True)
-    return competitors[:MAX_COMPETITORS]
+    # Do NOT cap here — pass all Google results to the competitor matcher so
+    # it can filter by type/price/sub-category before the final cap is applied.
+    return competitors
 
 
 def autocomplete_places(query: str) -> list[dict]:
