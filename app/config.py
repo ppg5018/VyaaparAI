@@ -69,7 +69,19 @@ MAX_COMPETITORS = 10
 MAX_REVIEW_TEXT_LENGTH = 200
 
 # Competitor matching filters
-MIN_COMPETITOR_REVIEWS = 20   # exclude competitors below this — ratings not statistically meaningful
+MIN_COMPETITOR_REVIEWS = 20   # default — restaurants/cafes get many reviews so 20 is meaningful
+# Mall/brand retail stores have far fewer Google Maps reviews than restaurants.
+# Lower thresholds per category so Bata, Adidas, Puma etc. aren't dropped.
+CATEGORY_MIN_COMPETITOR_REVIEWS: dict[str, int] = {
+    "restaurant":    20,
+    "cafe":          20,
+    "retail":         5,
+    "grocery":        5,
+    "pharmacy":       5,
+    "medical":        5,
+    "manufacturing":  3,
+    "distributor":    3,
+}
 PRICE_TIER_TOLERANCE = 1      # keep competitors within ±N price levels of my own
 MIN_COMPETITORS_AFTER_FILTER = 3   # if filters strip below this, fall back to the unfiltered set
 

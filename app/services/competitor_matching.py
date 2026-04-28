@@ -32,6 +32,7 @@ from app.config import (
     HAIKU_MODEL,
     HAIKU_MAX_TOKENS,
     MIN_COMPETITOR_REVIEWS,
+    CATEGORY_MIN_COMPETITOR_REVIEWS,
     PRICE_TIER_TOLERANCE,
     MIN_COMPETITORS_AFTER_FILTER,
     SUBCATEGORIES_BY_CATEGORY,
@@ -314,12 +315,13 @@ def filter_competitors(
         return []
 
     category = my_business.get("category", "")
+    min_reviews = CATEGORY_MIN_COMPETITOR_REVIEWS.get(category, MIN_COMPETITOR_REVIEWS)
 
-    by_reviews = filter_by_review_count(competitors)
+    by_reviews = filter_by_review_count(competitors, min_reviews)
     if not by_reviews:
         logger.info(
-            "[competitor_matching] all %d competitors below %d-review threshold — keeping originals",
-            len(competitors), MIN_COMPETITOR_REVIEWS,
+            "[competitor_matching] all %d competitors below %d-review threshold for category=%s — keeping originals",
+            len(competitors), min_reviews, category,
         )
         return list(competitors)
 
