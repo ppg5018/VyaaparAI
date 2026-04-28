@@ -32,9 +32,7 @@ _CATEGORY_TYPE_MAP = {
     "restaurant": "restaurant",
     "cafe": "cafe",
     "grocery": "grocery_or_supermarket",
-    # "store" misses shoe_store / clothing_store primary types — use establishment
-    # so the competitor matcher's sub-category filter does the narrowing instead.
-    "retail": "establishment",
+    "retail": "store",
     "pharmacy": "pharmacy",
     "medical": "doctor",
     "manufacturing": "establishment",

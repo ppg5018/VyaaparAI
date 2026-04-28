@@ -356,22 +356,26 @@ def filter_competitors(
     by_subcat = filter_by_subcategory(by_price, tags)
     my_tag = tags.get(ME_KEY)
 
-    # When my own tag is specific (not "general") and Haiku had a clean read,
-    # trust the sub-category result even if it's empty. A footwear store with
-    # zero nearby footwear competitors should score against an empty list (65
-    # neutral) rather than against opticians, mattresses, and electronics
-    # stores. The fallback only protects against Haiku failing or my own
-    # business landing on "general" — not against legitimate empty matches.
     if my_tag and my_tag != "general":
+        if len(by_subcat) >= MIN_COMPETITORS_AFTER_FILTER:
+            logger.info(
+                "[competitor_matching] sub-category filter (my_tag=%s): %d → %d competitors",
+                my_tag, len(competitors), len(by_subcat),
+            )
+            return by_subcat
+        # Haiku stripped below the floor — Google likely didn't return enough
+        # same-sub-category candidates (e.g. Bata/Adidas outside the 20-result window).
+        # Fall back to the hard-filter set so the score isn't misleadingly neutral.
         logger.info(
-            "[competitor_matching] sub-category filter (my_tag=%s): %d → %d competitors",
-            my_tag, len(competitors), len(by_subcat),
+            "[competitor_matching] sub-category filter (my_tag=%s) stripped to %d < %d floor — "
+            "falling back to hard-filter set (%d competitors)",
+            my_tag, len(by_subcat), MIN_COMPETITORS_AFTER_FILTER, len(by_price),
         )
-        return by_subcat
+        return by_price
 
     # my_tag missing or "general" — Haiku gave us no usable signal, fall back.
     logger.info(
-        "[competitor_matching] no sub-category signal (my_tag=%s) — keeping price+name+type set (%d competitors)",
+        "[competitor_matching] no sub-category signal (my_tag=%s) — keeping hard-filter set (%d competitors)",
         my_tag, len(by_price),
     )
     return by_price
