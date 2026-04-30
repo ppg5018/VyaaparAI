@@ -43,3 +43,6 @@ data/
 .pytest_cache/
 htmlcov/
 .coverage
+
+# Local review notes
+IMPROVEMENTS.md
