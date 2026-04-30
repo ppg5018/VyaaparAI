@@ -8,7 +8,7 @@ from app.models import (
     Review, SubScores, WeeklyRevenue,
 )
 from app.database import supabase
-from app.services import apify_reviews, competitor_analysis, competitor_matching, google_places, health_score, insights, pos_pipeline, review_classifier
+from app.services import apify_reviews, competitor_analysis, google_places, health_score, insights, pos_pipeline, review_classifier
 from app.services.health_score import compute_velocity
 
 logger = logging.getLogger(__name__)
@@ -107,30 +107,6 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         except Exception as exc:
             logger.warning(
                 "[generate-report] business_id=%s Apify augmentation skipped (non-fatal): %s",
-                business_id, exc,
-            )
-
-        # 2c. Filter competitors — price tier + type + name + sub-category (Haiku)
-        try:
-            raw_count = len(google_data["competitors"])
-            filtered = competitor_matching.filter_competitors(
-                my_business={
-                    "name": google_data["name"],
-                    "category": biz.get("category", ""),
-                    "price_level": google_data.get("price_level"),
-                },
-                competitors=google_data["competitors"],
-            )
-            # Cap after filtering so the matcher sees the full Google candidate list
-            from app.config import MAX_COMPETITORS
-            google_data["competitors"] = filtered[:MAX_COMPETITORS]
-            logger.info(
-                "[generate-report] business_id=%s competitor filter: %d → %d (capped at %d)",
-                business_id, raw_count, len(google_data["competitors"]), MAX_COMPETITORS,
-            )
-        except Exception as exc:
-            logger.warning(
-                "[generate-report] business_id=%s competitor filter skipped (non-fatal): %s",
                 business_id, exc,
             )
 
