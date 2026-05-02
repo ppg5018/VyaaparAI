@@ -62,15 +62,21 @@ def build_prompt(
     else:
         review_snippets = "No reviews available"
 
+    # Competitor block — these are the similarity-filtered matches from
+    # competitor_pipeline.run(), already ranked by relevance.
     competitors = business_data.get("competitors", [])[:3]
     if competitors:
-        comp_lines = [
-            f"- {c['name']}: {c['rating']}★ ({c['review_count']} reviews)"
-            for c in competitors
-        ]
+        comp_lines = []
+        for c in competitors:
+            sim_str = (
+                f", similarity={c['similarity']:.2f}" if c.get("similarity") is not None else ""
+            )
+            comp_lines.append(
+                f"- {c['name']}: {c['rating']}★ ({c['review_count']} reviews{sim_str})"
+            )
         competitor_lines = "\n".join(comp_lines)
     else:
-        competitor_lines = "No nearby competitors found"
+        competitor_lines = "No relevant competitors found within 800m"
 
     revenue_trend_pct = pos_signals.get("revenue_trend_pct")
     slow_categories = pos_signals.get("slow_categories", [])
@@ -128,7 +134,7 @@ Health score: {final_score}/100 (band: {band})
 Last {len(reviews)} reviews (newest first):
 {review_snippets}
 
-Top 3 nearby competitors (within 800m):
+Top similarity-matched competitors within 800m (semantically similar businesses):
 {competitor_lines}
 
 Sales signals (last 30 days):
@@ -145,7 +151,7 @@ Google Maps photos: {photo_str}
 
 Generate exactly {count} insights and 1 action.
 Each insight must:
-- Name a specific product, category, review theme, or competitor
+- Name a specific product, category, review theme, or competitor from the data above
 - Reference actual numbers from the data above (rating, review count, revenue %, AOV)
 - Cover a DIFFERENT signal from the other insights — do not repeat the same point
 - Mix sources: at least one from reviews, at least one from POS data (when available),

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from app.database import supabase
+from app.services import pos_column_matcher
 from app.config import (
     CATEGORY_POS_THRESHOLDS,
     DEFAULT_POS_THRESHOLDS,
@@ -51,12 +52,34 @@ def ingest_pos_csv(filepath: str, business_id: str) -> int:
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"CSV not found: {filepath}")
 
-    df = pd.read_csv(filepath)
+    raw_df = pd.read_csv(filepath)
+
+    # Route through the column matcher so heterogeneous POS exports
+    # (Petpooja / DotPe / Tally / Vyapar / hand-built Excel) are canonicalised
+    # to pos_records shape before validation. Synthetic CSVs match at Layer 1
+    # and pass through unchanged.
+    try:
+        df, diag = pos_column_matcher.canonicalise(raw_df)
+    except ValueError as exc:
+        raise ValueError(f"Cannot map POS file columns: {exc}") from exc
+    except Exception as exc:
+        logger.exception("Column matcher crashed for %s", filepath)
+        raise ValueError(
+            f"Failed to parse POS file. Raw columns: {list(raw_df.columns)}. Error: {exc}"
+        ) from exc
+    logger.info(
+        "Column mapping diagnostic for %s: L1=%d L2=%d L3=%d unmapped=%d granularity=%s",
+        os.path.basename(filepath),
+        len(diag["layer1"]), len(diag["layer2"]), len(diag["layer3"]),
+        len(diag["unmapped"]), diag["granularity"],
+    )
 
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(
-            f"CSV missing required columns: {missing}. Found: {list(df.columns)}"
+            f"CSV missing required columns after mapping: {missing}. "
+            f"Mapped columns: {list(df.columns)}. "
+            f"Unmapped raw columns: {diag['unmapped']}"
         )
 
     try:

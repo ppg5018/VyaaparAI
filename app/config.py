@@ -9,6 +9,7 @@ GOOGLE_PLACES_API_KEY: str = os.getenv("GOOGLE_PLACES_API_KEY", "")
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
 APIFY_TOKEN: str = os.getenv("APIFY_TOKEN", "")
+COHERE_API_KEY: str = os.getenv("COHERE_API_KEY", "")
 
 # Apify
 APIFY_REVIEWS_ACTOR = "compass~google-maps-reviews-scraper"
@@ -67,6 +68,15 @@ DEFAULT_POS_THRESHOLDS: dict = {
 COMPETITOR_RADIUS_METERS = 800
 MAX_COMPETITORS = 10
 MAX_REVIEW_TEXT_LENGTH = 200
+
+# Competitor pipeline v2 (embeddings + similarity)
+EMBEDDING_MODEL = "embed-multilingual-v3.0"   # Cohere — handles Hinglish well
+EMBEDDING_DIM = 1024                          # must match review_embeddings.embedding column
+EMBEDDING_INPUT_TYPE_DOC = "search_document"  # for stored vectors
+EMBEDDING_INPUT_TYPE_QUERY = "search_query"   # for runtime queries
+SIMILARITY_THRESHOLD = 0.55                   # cosine; below this = not really a competitor
+COMPETITOR_MATCH_TTL_DAYS = 7                 # refresh competitor_matches weekly
+MAX_REVIEWS_PER_COMPETITOR_FOR_EMBEDDING = 30 # cap text fed to Cohere per competitor
 
 # Competitor matching filters
 MIN_COMPETITOR_REVIEWS = 20   # default — restaurants/cafes get many reviews so 20 is meaningful
@@ -143,16 +153,33 @@ NAME_EXCLUSION_KEYWORDS: dict[str, list[str]] = {
         # Intra-retail sub-category leaks — catches obvious mismatches when
         # Haiku tagging is unavailable. Specific brand/keyword tokens; avoid
         # generic words ("store", "shop") that would over-match.
-        "optician", "opticals", "spectacle",
+        "optician", "opticals", "spectacle", "sunglass", "lenskart",
+        "ray-ban", "ray ban", "oakley", "titan eye",
+        "luggage", "tourister", "samsonite", "skybags", "delsey",
+        "wildcraft", "safari",
         "mattress", "sleepwell", "kurlon",
         "samsung", "lg ", "sony", "vivo", "oppo",
-        "jockey", "vip", "rupa",
+        "jockey", "rupa",
         "tanishq", "kalyan jewellers", "joyalukkas",
     ],
     "pharmacy": [
         "restaurant", "dhaba", "hotel", "café", "cafe",
         "sweets", "bakery",
     ],
+}
+
+# Brand-name top-up for retail competitor discovery. After Haiku tags the
+# user's own sub-category, the pipeline runs one Google Text Search per
+# keyword in this list (constrained to COMPETITOR_RADIUS_METERS) and merges
+# the hits into the candidate pool. Fixes the Phoenix Mall problem where
+# `places_nearby` returns only ~20 prominent tenants and same-mall brand
+# stores (Adidas, Puma, Bata...) fall off the first page.
+RETAIL_BRAND_KEYWORDS: dict[str, list[str]] = {
+    "footwear":      ["Adidas", "Nike", "Puma", "Reebok", "Bata", "Skechers", "Woodland", "Crocs"],
+    "clothing":      ["Zara", "H&M", "Levi's", "Allen Solly", "Louis Philippe", "Van Heusen", "Pantaloons", "Westside"],
+    "electronics":   ["Croma", "Reliance Digital", "Vijay Sales", "Samsung", "Sony Centre", "Apple Store"],
+    "home_goods":    ["Home Centre", "Pepperfry", "Urban Ladder", "FabIndia"],
+    "general_store": ["DMart", "More", "Spencer's", "Reliance Smart"],
 }
 
 # Sub-category vocabulary per parent category. Haiku picks one tag per business.
@@ -166,7 +193,8 @@ SUBCATEGORIES_BY_CATEGORY: dict[str, list[str]] = {
         "coffee_shop", "bakery", "dessert_parlour", "chai_stall", "cafe_bistro", "general",
     ],
     "retail": [
-        "clothing", "electronics", "footwear", "home_goods", "general_store", "general",
+        "clothing", "electronics", "footwear", "eyewear", "luggage",
+        "jewellery", "home_goods", "general_store", "general",
     ],
     "grocery": ["supermarket", "kirana", "organic", "general"],
     "pharmacy": ["chain", "independent", "general"],

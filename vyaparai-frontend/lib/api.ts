@@ -21,6 +21,9 @@ export interface Competitor {
   name: string;
   rating: number;
   review_count: number;
+  place_id?: string;
+  is_manual?: boolean;
+  sub_category?: string | null;
 }
 
 export interface CompetitorAnalysis {
@@ -189,5 +192,30 @@ export async function getActions(businessId: string): Promise<{ business_id: str
 
 export async function deleteAction(actionId: string): Promise<void> {
   const res = await fetch(`${BASE}/actions/${actionId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function addCompetitor(
+  businessId: string,
+  placeId: string,
+): Promise<Competitor> {
+  const res = await fetch(`${BASE}/competitors/${businessId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ place_id: placeId }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  return data.competitor as Competitor;
+}
+
+export async function removeCompetitor(
+  businessId: string,
+  placeId: string,
+): Promise<void> {
+  const res = await fetch(
+    `${BASE}/competitors/${businessId}/${encodeURIComponent(placeId)}`,
+    { method: 'DELETE' },
+  );
   if (!res.ok) throw new Error(await res.text());
 }
