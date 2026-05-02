@@ -8,7 +8,7 @@ from app.models import (
     Review, SubScores, WeeklyRevenue,
 )
 from app.database import supabase
-from app.services import apify_reviews, competitor_analysis, google_places, health_score, insights, pos_pipeline, review_classifier
+from app.services import apify_reviews, competitor_analysis, competitor_pipeline, google_places, health_score, insights, pos_pipeline, review_classifier
 from app.services.health_score import compute_velocity
 
 logger = logging.getLogger(__name__)
@@ -110,8 +110,37 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
                 business_id, exc,
             )
 
+        # 2c. Competitor pipeline v2 — embeddings + similarity matching.
+        # Returns the ranked similarity-filtered list (cached for 7 days
+        # in competitor_matches). Empty on failure → neutral score downstream.
+        try:
+            matched = competitor_pipeline.run(
+                business_id=business_id,
+                my_business={
+                    "place_id": biz["place_id"],
+                    "name": google_data["name"],
+                    "category": biz.get("category", ""),
+                    "lat": google_data["lat"],
+                    "lng": google_data["lng"],
+                },
+                my_reviews=google_data["reviews"],
+            )
+            google_data["competitors"] = matched
+            logger.info(
+                "[generate-report] business_id=%s competitor_pipeline matched %d businesses",
+                business_id, len(matched),
+            )
+        except Exception as exc:
+            logger.warning(
+                "[generate-report] business_id=%s competitor_pipeline failed (non-fatal): %s",
+                business_id, exc,
+            )
+            google_data["competitors"] = []
+
     # 3. POS signals — never raises
-    signals = pos_pipeline.pos_signals(business_id, days=30, category=biz.get("category", ""))
+    # NOTE: temporarily widened from 30→180 days so historical/demo POS files
+    # (e.g. Dec 2025 data viewed in Apr 2026) still populate the dashboard.
+    signals = pos_pipeline.pos_signals(business_id, days=180, category=biz.get("category", ""))
 
     # 4. Classify reviews with Haiku — never raises, falls back to star ratings
     classified = []
@@ -174,14 +203,25 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         )
         raise HTTPException(status_code=500, detail="Insight generation failed")
 
-    # 7b. Competitor analysis — never raises, returns empty on failure
-    comp_analysis = competitor_analysis.analyze_competitors(
-        my_business=google_data,
-        competitors=google_data.get("competitors", []),
-    )
+    # 7b. Competitor themes/opportunities — Sonnet over user reviews +
+    # cached Apify reviews from matched competitors. Empty on any failure.
+    try:
+        comp_analysis = competitor_analysis.analyze_competitors(
+            my_business_name=google_data["name"],
+            my_reviews=google_data["reviews"],
+            competitors=google_data["competitors"],
+        )
+    except Exception as exc:
+        logger.warning(
+            "[generate-report] business_id=%s competitor analysis failed (non-fatal): %s",
+            business_id, exc,
+        )
+        comp_analysis = {"themes": [], "opportunities": [], "analyzed_count": 0}
 
     # 7c. Chart data for the dashboard (weekly revenue + revenue-by-category)
-    chart = pos_pipeline.chart_data(business_id, weeks=8)
+    # NOTE: temporarily widened from 8→26 weeks (~6 months) so older POS uploads
+    # still render the weekly-revenue chart.
+    chart = pos_pipeline.chart_data(business_id, weeks=26)
 
     # 8. Build the response
     MAX_INSIGHT = 400
@@ -221,6 +261,9 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
                 name=c["name"],
                 rating=c["rating"],
                 review_count=c["review_count"],
+                place_id=c.get("place_id"),
+                is_manual=bool(c.get("is_manual", False)),
+                sub_category=c.get("sub_category"),
             )
             for c in google_data["competitors"]
         ],

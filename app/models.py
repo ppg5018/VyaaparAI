@@ -67,6 +67,9 @@ class Competitor(BaseModel):
     name: str
     rating: float
     review_count: int
+    place_id: str | None = None
+    is_manual: bool = False
+    sub_category: str | None = None
 
 
 class CompetitorAnalysis(BaseModel):

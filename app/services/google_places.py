@@ -1,3 +1,4 @@
+import math
 import time
 import logging
 
@@ -154,6 +155,19 @@ def parse_reviews(raw_reviews: list) -> list:
     return parsed
 
 
+def _parse_place(place: dict) -> dict:
+    raw_price = place.get("price_level")
+    price_level = int(raw_price) if isinstance(raw_price, (int, float)) else None
+    return {
+        "name": place.get("name", ""),
+        "rating": float(place.get("rating", 0.0)),
+        "review_count": int(place.get("user_ratings_total", 0)),
+        "place_id": place.get("place_id", ""),
+        "price_level": price_level,
+        "types": place.get("types", []),
+    }
+
+
 def get_nearby_competitors(
     lat: float,
     lng: float,
@@ -161,56 +175,117 @@ def get_nearby_competitors(
     radius: int = COMPETITOR_RADIUS_METERS,
     exclude_place_id: str | None = None,
 ) -> list:
-    """Return up to MAX_COMPETITORS nearby competitors sorted by rating descending.
+    """Return nearby competitors via two discovery strategies, deduped.
 
-    Never raises — returns an empty list on any failure so one bad
-    nearby-search never kills the pipeline.
+    1) Prominence-ranked nearby search, paginated up to 3 pages (~60 results).
+       Default Google ordering — surfaces well-reviewed, popular places first.
+    2) Distance-ranked nearby search, single page (~20 closest, no radius cap).
+       Mall locations especially need this — strategy (1) collapses to the
+       same prominent tenants per page; distance-rank surfaces the literal
+       nearest stores even if they don't rank as prominent.
+
+    Never raises — returns [] on any failure so a flaky Nearby Search never
+    kills the pipeline.
     """
     place_type = _CATEGORY_TYPE_MAP.get(category, _CATEGORY_TYPE_MAP["default"])
+    client = _get_client()
+    raw_results: list = []
 
-    def _call() -> dict:
-        return _get_client().places_nearby(
-            location=(lat, lng),
-            radius=radius,
-            type=place_type,
-        )
-
-    try:
+    # Strategy 1: prominence-ranked, paginated up to 2 pages (~40 results).
+    # Each extra page costs a ~2s next_page_token activation wait, so we cap
+    # at 2 — brand top-up + distance-rank cover the long tail.
+    page_token: str | None = None
+    for page in range(2):
         try:
-            response = _call()
+            if page_token:
+                response = client.places_nearby(page_token=page_token)
+            else:
+                response = client.places_nearby(
+                    location=(lat, lng), radius=radius, type=place_type,
+                )
         except googlemaps.exceptions.Timeout:
-            logger.warning("Competitor search timeout for (%s,%s), retrying in 2s", lat, lng)
-            time.sleep(2)
-            response = _call()
+            logger.warning("places_nearby (prominence p%d) timeout for (%s,%s)", page, lat, lng)
+            break
+        except Exception as exc:
+            logger.warning("places_nearby (prominence p%d) failed for (%s,%s): %s", page, lat, lng, exc)
+            break
+        raw_results.extend(response.get("results", []))
+        page_token = response.get("next_page_token")
+        if not page_token:
+            break
+        # Google's next_page_token activates after a brief delay (~2s).
+        time.sleep(2.0)
 
-    except googlemaps.exceptions.Timeout:
-        logger.warning("get_nearby_competitors timeout after retry for (%s,%s)", lat, lng)
-        return []
-
+    # Strategy 2: distance-ranked, single page. Google rejects radius+rank_by together.
+    try:
+        response = client.places_nearby(
+            location=(lat, lng), rank_by="distance", type=place_type,
+        )
+        raw_results.extend(response.get("results", []))
     except Exception as exc:
-        logger.warning("get_nearby_competitors failed for (%s,%s): %s", lat, lng, exc)
-        return []
+        logger.warning("places_nearby (distance) failed for (%s,%s): %s", lat, lng, exc)
 
-    competitors = []
-    for place in response.get("results", []):
+    # Dedupe by place_id.
+    seen: set[str] = set()
+    competitors: list[dict] = []
+    for place in raw_results:
         pid = place.get("place_id", "")
+        if not pid or pid in seen:
+            continue
         if exclude_place_id and pid == exclude_place_id:
             continue
-        raw_price = place.get("price_level")
-        price_level = int(raw_price) if isinstance(raw_price, (int, float)) else None
-        competitors.append({
-            "name": place.get("name", ""),
-            "rating": float(place.get("rating", 0.0)),
-            "review_count": int(place.get("user_ratings_total", 0)),
-            "place_id": pid,
-            "price_level": price_level,
-            "types": place.get("types", []),
-        })
+        seen.add(pid)
+        competitors.append(_parse_place(place))
 
     competitors.sort(key=lambda c: c["rating"], reverse=True)
+    logger.info(
+        "get_nearby_competitors: %d unique candidates for (%s,%s) type=%s (prominence+distance)",
+        len(competitors), lat, lng, place_type,
+    )
     # Do NOT cap here — pass all Google results to the competitor matcher so
     # it can filter by type/price/sub-category before the final cap is applied.
     return competitors
+
+
+def text_search_brand(
+    brand: str,
+    lat: float,
+    lng: float,
+    radius: int = COMPETITOR_RADIUS_METERS,
+) -> list:
+    """Find branded stores via Google Text Search, hard-clipped to `radius` metres.
+
+    Used as a top-up for retail competitor discovery so that same-mall
+    brand stores (Adidas, Puma, etc.) that fall off `places_nearby`'s
+    prominence-ranked first page still get surfaced. Google biases (not
+    clips) by location, so we filter by haversine after the call.
+
+    Returns the same shape as get_nearby_competitors. Empty on any failure.
+    """
+    try:
+        response = _get_client().places(
+            query=brand, location=(lat, lng), radius=radius,
+        )
+    except Exception as exc:
+        logger.warning("text_search_brand failed for '%s' near (%s,%s): %s", brand, lat, lng, exc)
+        return []
+
+    cos_lat = math.cos(math.radians(lat))
+    out: list[dict] = []
+    for place in response.get("results", []):
+        geo = place.get("geometry", {}).get("location", {})
+        plat, plng = geo.get("lat"), geo.get("lng")
+        if plat is None or plng is None:
+            continue
+        # Equirectangular approximation — accurate to <1% at sub-2km radii.
+        dy = (plat - lat) * 111_000
+        dx = (plng - lng) * 111_000 * cos_lat
+        if math.hypot(dx, dy) > radius:
+            continue
+        if not place.get("place_id"):
+            continue
+        out.append(_parse_place(place))
+    return out
 
 
 def autocomplete_places(query: str) -> list[dict]:
@@ -260,11 +335,14 @@ def find_place_by_name(name: str) -> str | None:
 
 
 def fetch_all_data(place_id: str, category: str) -> dict:
-    """Fetch business details and nearby competitors from Google Places.
+    """Fetch business details + nearby competitor candidates from Google Places.
 
-    Raises if get_business_details() fails (caller handles it).
-    Competitor failures are swallowed so one bad nearby-search never kills
-    the pipeline.
+    The competitor list returned here is RAW — it has not been filtered for
+    similarity yet. `competitor_pipeline.run()` consumes this list and applies
+    the embedding-based matching layer.
+
+    Competitor failures are swallowed so a flaky Nearby Search never kills
+    the report pipeline. Raises if get_business_details() fails (caller handles).
     """
     details = get_business_details(place_id)
     reviews = parse_reviews(details["raw_reviews"])
@@ -278,13 +356,13 @@ def fetch_all_data(place_id: str, category: str) -> dict:
         )
     except Exception as exc:
         logger.warning(
-            "fetch_all_data: competitor fetch raised unexpectedly for place_id=%s: %s",
+            "fetch_all_data: nearby competitor fetch failed for place_id=%s: %s",
             place_id, exc,
         )
         competitors = []
 
     logger.info(
-        "Fetched data for %s: %d reviews, %d competitors",
+        "Fetched data for %s: %d reviews, %d raw competitor candidates",
         details["name"], details["total_reviews"], len(competitors),
     )
 

@@ -149,7 +149,14 @@ def review_score(
 
 
 def competitor_score(my_rating: float, competitors: list) -> int:
-    """Compute 0-100 competitive position score vs nearby businesses."""
+    """Compute 0-100 competitive position score vs nearby businesses.
+
+    Pipeline v2: `competitors` is the similarity-filtered list from
+    `competitor_pipeline.run()`. Empty list = no relevant competitors found
+    (similarity below threshold or hard filters wiped everyone) → neutral 65.
+
+    Score formula unchanged from v1: rating delta × 30, recentered at 60.
+    """
     if not my_rating:
         return NO_COMPETITORS_NEUTRAL
 

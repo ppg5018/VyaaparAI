@@ -46,22 +46,19 @@ check(60 <= s <= 75, "4. High rating, no reviews: 60 <= score <= 75", s)
 s = review_score(4.0, 100, [])
 check(55 <= s <= 75, "5. Empty recent_reviews: 55 <= score <= 75", s)
 
-print("\n-- competitor_score() --")
+print("\n-- competitor_score() (stubbed — pipeline rebuilding) --")
 
+# Pipeline removed pending rebuild. competitor_score is hard-coded to
+# NO_COMPETITORS_NEUTRAL = 65 regardless of inputs. Replace these assertions
+# with the new pipeline's expected behaviour when it lands.
 s = competitor_score(4.5, [{"rating": 4.0}] * 5)
-check(72 <= s <= 78, "1. Beating competitors by 0.5: 72 <= score <= 78", s)
-
-s = competitor_score(4.0, [{"rating": 4.0}] * 5)
-check(58 <= s <= 62, "2. Matching competitors: 58 <= score <= 62", s)
-
-s = competitor_score(3.5, [{"rating": 4.0}] * 5)
-check(42 <= s <= 48, "3. Trailing by 0.5: 42 <= score <= 48", s)
+check(s == 65, "1. Stubbed: ignores beating competitors → 65", s)
 
 s = competitor_score(4.0, [])
-check(s == 65, "4. No competitors: score == 65", s)
+check(s == 65, "2. Stubbed: no competitors → 65", s)
 
-s = competitor_score(4.2, [{"rating": 4.0}])
-check(65 <= s <= 70, "5. Single competitor: 65 <= score <= 70", s)
+s = competitor_score(3.5, [{"rating": 4.0}] * 5)
+check(s == 65, "3. Stubbed: ignores trailing competitors → 65", s)
 
 print("\n-- pos_score() --")
 

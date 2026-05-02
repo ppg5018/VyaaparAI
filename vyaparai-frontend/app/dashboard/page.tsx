@@ -4,7 +4,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   generateReport, getHistory, getActions, logAction, deleteAction,
+  searchPlaces, addCompetitor, removeCompetitor,
   type ActionEntry, type Band, type HealthReport, type HistoryEntry,
+  type PlaceSuggestion,
 } from '@/lib/api';
 import { useBusinessId } from '@/lib/business-context';
 import { useAuth } from '@/lib/auth-context';
@@ -742,32 +744,264 @@ function InsightsTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx })
 }
 
 // ─── TAB: Competitors ──────────────────────────────────────────────────────────
-function CompetitorsTab({ report }: { report: HealthReport }) {
+function CompetitorsTab({
+  report,
+  businessId,
+  onAdded,
+  onRemoved,
+}: {
+  report: HealthReport;
+  businessId: string;
+  onAdded: (c: HealthReport['competitors'][number]) => void;
+  onRemoved: (placeId: string) => void;
+}) {
   const myRating    = report.google_rating;
+  const myReviews   = report.total_reviews;
   const competitors = report.competitors;
-  const topThreat   = competitors.find((c) => c.rating > myRating);
+  // A real threat must (a) outrank you AND (b) have credible review volume —
+  // a 4.6★ with 20 reviews vs your 1,297 isn't statistically meaningful.
+  const isThreatFn = (c: { rating: number; review_count: number }) =>
+    c.rating > myRating &&
+    c.review_count >= 50 &&
+    c.review_count >= myReviews * 0.1;
+  const topThreat   = competitors.find(isThreatFn);
   const { isMobile } = useViewport();
   const cols = isMobile ? '1fr' : '1fr 1fr';
 
+  // ── Derived insight stats (purely client-side) ──────────────────────────────
+  const credibleCompetitors = competitors.filter((c) => c.review_count >= 50);
+  const avgCompetitorRating =
+    credibleCompetitors.length > 0
+      ? credibleCompetitors.reduce((s, c) => s + c.rating, 0) / credibleCompetitors.length
+      : 0;
+  const ratingGap = +(myRating - avgCompetitorRating).toFixed(2);
+  const ratingsAtOrAboveYou = competitors.filter((c) => c.rating >= myRating).length;
+  const yourRank = ratingsAtOrAboveYou + 1; // 1-indexed
+  const totalRanked = competitors.length + 1;
+  const reviewVolumes = competitors.map((c) => c.review_count);
+  const competitorsAboveYouOnVolume = reviewVolumes.filter((v) => v > myReviews).length;
+  const volumePercentile =
+    reviewVolumes.length > 0
+      ? Math.round(
+          (reviewVolumes.filter((v) => v <= myReviews).length / reviewVolumes.length) * 100,
+        )
+      : 100;
+  const credibleThreats = competitors.filter(isThreatFn).length;
+  const manualCount = competitors.filter((c) => c.is_manual).length;
+  const autoCount = competitors.length - manualCount;
+
+  // Top 3 by review volume — orientation around "who dominates the conversation"
+  const volumeLeaders = [...competitors]
+    .sort((a, b) => b.review_count - a.review_count)
+    .slice(0, 3);
+
+  // Sub-category mix (counts) — drops nulls
+  const subcatCounts = competitors.reduce<Record<string, number>>((acc, c) => {
+    if (!c.sub_category) return acc;
+    acc[c.sub_category] = (acc[c.sub_category] ?? 0) + 1;
+    return acc;
+  }, {});
+  const subcatEntries = Object.entries(subcatCounts).sort((a, b) => b[1] - a[1]);
+  const totalSubcat = subcatEntries.reduce((s, [, n]) => s + n, 0);
+
+  const themes = report.competitor_analysis?.themes ?? [];
+  const opportunities = report.competitor_analysis?.opportunities ?? [];
+
+  const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [busyPid, setBusyPid] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  // Debounced autocomplete.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setSuggestions([]); return; }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const out = await searchPlaces(q);
+        setSuggestions(out);
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const handleAdd = async (s: PlaceSuggestion) => {
+    setBusyPid(s.place_id);
+    setAddError(null);
+    try {
+      const c = await addCompetitor(businessId, s.place_id);
+      onAdded(c);
+      setQuery('');
+      setSuggestions([]);
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Failed to add competitor');
+    } finally {
+      setBusyPid(null);
+    }
+  };
+
+  const handleRemove = async (placeId: string) => {
+    setBusyPid(placeId);
+    try {
+      await removeCompetitor(businessId, placeId);
+      onRemoved(placeId);
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Failed to remove competitor');
+    } finally {
+      setBusyPid(null);
+    }
+  };
+
+  const StatTile = ({
+    label, value, sub, color,
+  }: { label: string; value: string; sub?: string; color: string }) => (
+    <div style={{ ...CARD, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span style={{ ...SEC, fontSize: 10 }}>{label}</span>
+      <span style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 22, color, lineHeight: 1.1 }}>{value}</span>
+      {sub && <span style={{ fontSize: 11, color: 'var(--text3)' }}>{sub}</span>}
+    </div>
+  );
+
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 16, alignItems: 'start' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Hero strip — 4 stat tiles */}
+      {competitors.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12 }}>
+          <StatTile
+            label="Your Rank"
+            value={`#${yourRank} of ${totalRanked}`}
+            sub="by Google rating, this 800m radius"
+            color={yourRank === 1 ? 'var(--emerald)' : yourRank <= Math.ceil(totalRanked / 2) ? 'var(--gold)' : 'var(--red)'}
+          />
+          <StatTile
+            label="Rating Gap"
+            value={`${ratingGap > 0 ? '+' : ''}${ratingGap.toFixed(2)}★`}
+            sub={`vs avg credible competitor (${avgCompetitorRating.toFixed(1)}★)`}
+            color={ratingGap >= 0 ? 'var(--emerald)' : 'var(--red)'}
+          />
+          <StatTile
+            label="Review Volume"
+            value={`${volumePercentile}th pct`}
+            sub={competitorsAboveYouOnVolume > 0
+              ? `${competitorsAboveYouOnVolume} have more reviews than you`
+              : 'You lead on review volume'}
+            color={volumePercentile >= 50 ? 'var(--emerald)' : 'var(--gold)'}
+          />
+          <StatTile
+            label="Credible Threats"
+            value={String(credibleThreats)}
+            sub={credibleThreats === 0
+              ? 'No competitor outranks you with ≥10% your volume'
+              : 'Outrank you with credible review volume'}
+            color={credibleThreats === 0 ? 'var(--emerald)' : 'var(--red)'}
+          />
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 16, alignItems: 'start' }}>
       <div style={CARD}>
-        <span style={SEC}>Nearby Competitors · 800m radius</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+          <span style={SEC}>Nearby Competitors · 800m radius</span>
+          {competitors.length > 0 && (
+            <span style={{ fontSize: 10, color: 'var(--text3)' }}>
+              {autoCount} auto{manualCount > 0 ? ` · ${manualCount} you added` : ''}
+            </span>
+          )}
+        </div>
+
+        {/* Manual-add search bar */}
+        <div style={{ position: 'relative', marginBottom: 12 }}>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Add a competitor — search by name…"
+            style={{
+              width: '100%', padding: '10px 12px', fontSize: 13,
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 'var(--r)', color: 'var(--text)', outline: 'none',
+            }}
+          />
+          {query.trim().length >= 2 && (suggestions.length > 0 || searching) && (
+            <div
+              style={{
+                position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                background: 'var(--bg2)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 'var(--r)', zIndex: 10,
+                maxHeight: 240, overflowY: 'auto',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+              }}
+            >
+              {searching && suggestions.length === 0 && (
+                <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text3)' }}>Searching…</div>
+              )}
+              {suggestions.map((s) => {
+                const already = competitors.some((c) => c.place_id === s.place_id);
+                return (
+                  <button
+                    key={s.place_id}
+                    onClick={() => !already && handleAdd(s)}
+                    disabled={already || busyPid === s.place_id}
+                    style={{
+                      width: '100%', textAlign: 'left',
+                      padding: '10px 12px', fontSize: 12,
+                      background: 'transparent', border: 'none',
+                      borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      color: already ? 'var(--text3)' : 'var(--text)',
+                      cursor: already ? 'not-allowed' : 'pointer',
+                      display: 'flex', flexDirection: 'column', gap: 2,
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>{s.name}{already ? '  · already added' : ''}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text3)' }}>{s.address}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {addError && (
+          <p style={{ fontSize: 11, color: 'var(--red)', marginTop: 0, marginBottom: 8 }}>{addError}</p>
+        )}
+
         {competitors.length === 0 ? (
           <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>No nearby competitors found.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {competitors.map((c, i) => {
-              const isThreat = c.rating > myRating;
+              const isThreat = isThreatFn(c);
+              const isManual = !!c.is_manual;
               return (
-                <div key={c.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px', borderRadius: 'var(--r)', background: isThreat ? 'rgba(255,95,95,0.05)' : 'transparent', border: `1px solid ${isThreat ? 'rgba(255,95,95,0.15)' : 'transparent'}` }}>
+                <div key={c.place_id ?? c.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px', borderRadius: 'var(--r)', background: isThreat ? 'rgba(255,95,95,0.05)' : 'transparent', border: `1px solid ${isThreat ? 'rgba(255,95,95,0.15)' : 'transparent'}` }}>
                   <span style={{ fontFamily: 'var(--font-space-mono), monospace', fontSize: 11, color: 'var(--text3)', width: 22, flexShrink: 0 }}>{String(i + 1).padStart(2, '0')}</span>
                   <div style={{ flex: 1 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{c.name}</span>
                     <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 6 }}>{c.review_count.toLocaleString()} reviews</span>
+                    {isManual && (
+                      <span style={{ background: 'rgba(110,168,254,0.12)', border: '1px solid rgba(110,168,254,0.3)', borderRadius: 4, padding: '1px 6px', fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: '#6ea8fe', textTransform: 'uppercase', marginLeft: 8 }}>Added</span>
+                    )}
                   </div>
                   <span style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 13, color: isThreat ? 'var(--red)' : 'var(--text2)' }}>{c.rating}★</span>
                   {isThreat && <span style={{ background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 4, padding: '1px 6px', fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--red)', textTransform: 'uppercase' }}>THREAT</span>}
+                  {isManual && c.place_id && (
+                    <button
+                      onClick={() => handleRemove(c.place_id!)}
+                      disabled={busyPid === c.place_id}
+                      title="Remove"
+                      style={{
+                        background: 'transparent', border: 'none',
+                        color: 'var(--text3)', cursor: 'pointer',
+                        fontSize: 16, lineHeight: 1, padding: '0 4px',
+                      }}
+                    >×</button>
+                  )}
                 </div>
               );
             })}
@@ -804,10 +1038,111 @@ function CompetitorsTab({ report }: { report: HealthReport }) {
         </div>
         {topThreat && (
           <div style={{ marginTop: 20, background: 'var(--red-dim)', border: '1px solid rgba(255,95,95,0.25)', borderRadius: 'var(--r)', padding: '12px 14px', fontSize: 12, color: 'var(--text2)', lineHeight: 1.6 }}>
-            <span style={{ color: 'var(--red)', fontWeight: 600 }}>{topThreat.name}</span> at {topThreat.rating}★ is your highest-rated nearby competitor. A {(topThreat.rating - myRating).toFixed(1)}★ gap to close.
+            <span style={{ color: 'var(--red)', fontWeight: 600 }}>{topThreat.name}</span> at {topThreat.rating}★ is your highest-rated nearby competitor. A {(topThreat.rating - myRating).toFixed(1)}★ gap to close
+            {topThreat.review_count > myReviews && (
+              <> · they also have {(topThreat.review_count / Math.max(myReviews, 1)).toFixed(1)}× your review volume.</>
+            )}
           </div>
         )}
       </div>
+      </div>
+
+      {/* Themes + Opportunities */}
+      {(themes.length > 0 || opportunities.length > 0) && (
+        <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 16, alignItems: 'start' }}>
+          <div style={CARD}>
+            <span style={SEC}>What competitors are praised for</span>
+            {themes.length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>No themes available.</p>
+            ) : (
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {themes.map((t, i) => (
+                  <li key={i} style={{ display: 'flex', gap: 10, fontSize: 12, lineHeight: 1.55, color: 'var(--text2)' }}>
+                    <span style={{ fontFamily: 'var(--font-space-mono), monospace', color: 'var(--gold)', fontSize: 11, flexShrink: 0, marginTop: 1 }}>{String(i + 1).padStart(2, '0')}</span>
+                    <span>{t}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div style={CARD}>
+            <span style={SEC}>Gaps you can exploit</span>
+            {opportunities.length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>No gap signals from current competitor reviews.</p>
+            ) : (
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {opportunities.map((o, i) => (
+                  <li key={i} style={{ display: 'flex', gap: 10, fontSize: 12, lineHeight: 1.55, color: 'var(--text2)' }}>
+                    <span style={{ fontFamily: 'var(--font-space-mono), monospace', color: 'var(--emerald)', fontSize: 11, flexShrink: 0, marginTop: 1 }}>{String(i + 1).padStart(2, '0')}</span>
+                    <span>{o}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Volume leaders + Sub-category mix */}
+      {competitors.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 16, alignItems: 'start' }}>
+          <div style={CARD}>
+            <span style={SEC}>Volume leaders · who dominates the conversation</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {volumeLeaders.map((c, i) => {
+                const ratio = myReviews > 0 ? c.review_count / myReviews : null;
+                const ratioText = ratio == null
+                  ? `${c.review_count.toLocaleString()} reviews`
+                  : ratio >= 1
+                    ? `${ratio.toFixed(1)}× your reviews`
+                    : `${(ratio * 100).toFixed(0)}% of your reviews`;
+                return (
+                  <div key={c.place_id ?? c.name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontFamily: 'var(--font-space-mono), monospace', fontSize: 11, color: 'var(--text3)', width: 22, flexShrink: 0 }}>{String(i + 1).padStart(2, '0')}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12 }}>
+                        <span style={{ color: 'var(--text)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+                        <span style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, color: 'var(--violet)' }}>{c.review_count.toLocaleString()}</span>
+                      </div>
+                      <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 999, overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${Math.min(100, (c.review_count / Math.max(volumeLeaders[0].review_count, 1)) * 100)}%`,
+                          height: '100%', background: 'var(--violet)', borderRadius: 999,
+                        }} />
+                      </div>
+                      <span style={{ fontSize: 11, color: 'var(--text3)' }}>{ratioText}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div style={CARD}>
+            <span style={SEC}>Competitor mix by sub-category</span>
+            {subcatEntries.length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>Sub-category data not available for this category.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {subcatEntries.map(([cat, n], i) => {
+                  const pct = (n / totalSubcat) * 100;
+                  const color = CAT_COLORS[i % CAT_COLORS.length];
+                  return (
+                    <div key={cat}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12 }}>
+                        <span style={{ color: 'var(--text2)', textTransform: 'capitalize' }}>{cat.replace(/_/g, ' ')}</span>
+                        <span style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, color }}>{n}</span>
+                      </div>
+                      <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 999, overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 999 }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1349,7 +1684,14 @@ export default function DashboardPage() {
           <>
             {tab === 'overview'    && <OverviewTab     report={report} ctx={actionsCtx} />}
             {tab === 'insights'    && <InsightsTab     report={report} ctx={actionsCtx} />}
-            {tab === 'competitors' && <CompetitorsTab  report={report} />}
+            {tab === 'competitors' && (
+              <CompetitorsTab
+                report={report}
+                businessId={businessId!}
+                onAdded={(c) => setReport((r) => r ? { ...r, competitors: [c, ...r.competitors.filter((x) => x.place_id !== c.place_id)] } : r)}
+                onRemoved={(pid) => setReport((r) => r ? { ...r, competitors: r.competitors.filter((x) => x.place_id !== pid) } : r)}
+              />
+            )}
             {tab === 'pos'         && <PosTab          report={report} />}
             {tab === 'history'     && <HistoryTab scores={histScores} error={histError} />}
             {tab === 'notes'       && <NotesTab        ctx={actionsCtx} />}
