@@ -46,6 +46,7 @@ from app.config import (
     MIN_COMPETITOR_REVIEWS,
     NAME_EXCLUSION_KEYWORDS,
     RETAIL_BRAND_KEYWORDS,
+    SIMILARITY_FALLBACK_FLOOR,
     SIMILARITY_THRESHOLD,
     SUBCATEGORIES_BY_CATEGORY,
 )
@@ -95,6 +96,7 @@ Pick the single best tag from: {vocab_str}.
 Rules:
 - A business that primarily sells one thing gets that tag, even if it also sells related items.
   Sportswear brands like Adidas/Nike/Puma sell apparel too — tag them "footwear", not "clothing".
+- Tiffin centres / Udupi-style breakfast counters / places whose name contains "tiffins", "iyengar", "darshini", or that primarily serve idli, dosa, vada, sambar, upma → "south_indian_breakfast" if available, else "south_indian". NEVER "fast_food" — fast_food means QSR chains like McDonald's, KFC, Burger King, Subway.
 - Eyewear / sunglasses / opticals (Sunglass Hut, Lenskart, Ray-Ban, Vision Express, Foresight Opticals) → "eyewear" if available, else "general". NEVER "footwear" or "clothing".
 - Luggage / travel bags (American Tourister, Samsonite, Skybags, Delsey, VIP, Wildcraft) → "luggage" if available, else "general". NEVER "footwear" or "clothing".
 - Jewellery (Tanishq, Kalyan, Joyalukkas, CaratLane) → "jewellery" if available, else "general".
@@ -567,13 +569,30 @@ def run(
     # 7. Drop below threshold (these aren't really competitors of *mine*).
     above_threshold = [c for c in ranked if c["similarity"] >= SIMILARITY_THRESHOLD]
     if not above_threshold:
-        # All similarity below threshold — could be sparse competitor reviews.
-        # Keep the top 3 with their (low) similarity scores so the score has signal.
-        logger.info(
-            "[competitor_pipeline] no candidate above threshold %.2f — keeping top 3",
-            SIMILARITY_THRESHOLD,
-        )
-        above_threshold = ranked[:3]
+        # All below the strict threshold. Two sub-cases:
+        #   (a) max similarity is "close" (>= SIMILARITY_FALLBACK_FLOOR) — likely
+        #       just sparse competitor review text dragging scores down. Keep
+        #       the top 3 so the score has signal.
+        #   (b) max similarity is below the floor — the radius genuinely has
+        #       nothing semantically close (e.g. tiffin centre with only QSR
+        #       neighbours). Return empty and let competitor_score fall back
+        #       to its neutral default. Pretending a wildly different business
+        #       is a competitor is worse than admitting we found none.
+        max_sim = max((c["similarity"] for c in ranked), default=0.0)
+        if max_sim >= SIMILARITY_FALLBACK_FLOOR:
+            logger.info(
+                "[competitor_pipeline] no candidate above threshold %.2f — "
+                "keeping top 3 (max sim=%.3f ≥ floor %.2f)",
+                SIMILARITY_THRESHOLD, max_sim, SIMILARITY_FALLBACK_FLOOR,
+            )
+            above_threshold = ranked[:3]
+        else:
+            logger.info(
+                "[competitor_pipeline] all candidates below floor %.2f (max sim=%.3f) — "
+                "returning empty so competitor_score stays neutral",
+                SIMILARITY_FALLBACK_FLOOR, max_sim,
+            )
+            above_threshold = []
 
     # 8. Attach sub_category tag and cap.
     for c in above_threshold:

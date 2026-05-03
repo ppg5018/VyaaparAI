@@ -75,6 +75,8 @@ EMBEDDING_DIM = 1024                          # must match review_embeddings.emb
 EMBEDDING_INPUT_TYPE_DOC = "search_document"  # for stored vectors
 EMBEDDING_INPUT_TYPE_QUERY = "search_query"   # for runtime queries
 SIMILARITY_THRESHOLD = 0.55                   # cosine; below this = not really a competitor
+SIMILARITY_FALLBACK_FLOOR = 0.40              # if max similarity is below THIS too, return empty
+                                              # (don't keep top-3 by rating when nothing is even close — see Asha Tiffins / KFC)
 COMPETITOR_MATCH_TTL_DAYS = 7                 # refresh competitor_matches weekly
 MAX_REVIEWS_PER_COMPETITOR_FOR_EMBEDDING = 30 # cap text fed to Cohere per competitor
 
@@ -186,7 +188,8 @@ RETAIL_BRAND_KEYWORDS: dict[str, list[str]] = {
 # Keep lists short — too many options dilutes Haiku's accuracy.
 SUBCATEGORIES_BY_CATEGORY: dict[str, list[str]] = {
     "restaurant": [
-        "north_indian", "south_indian", "chinese", "biryani", "fast_food",
+        "north_indian", "south_indian", "south_indian_breakfast",
+        "chinese", "biryani", "fast_food",
         "pure_veg_thali", "non_veg_grill", "multicuisine", "cafe_bakery", "general",
     ],
     "cafe": [
