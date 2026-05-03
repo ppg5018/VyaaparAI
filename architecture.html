@@ -204,18 +204,19 @@
   ════════════════════════════════════════════════════ -->
   <div class="header">
     <h1>VyaparAI Module 1 — System Architecture</h1>
-    <p class="subtitle">Business Health Score Engine for Indian MSMEs &nbsp;·&nbsp; FastAPI + Supabase + Claude AI + Google Places + Apify</p>
+    <p class="subtitle">Business Health Score Engine for Indian MSMEs &nbsp;·&nbsp; FastAPI + Supabase + Claude + Google Places + Apify + Cohere</p>
     <div class="badges">
       <span class="badge" style="background:#052e16;color:#4ade80;border-color:#14532d;">Python 3.11</span>
       <span class="badge" style="background:#052e16;color:#4ade80;border-color:#14532d;">FastAPI + Uvicorn</span>
-      <span class="badge" style="background:#082f49;color:#38bdf8;border-color:#0c4a6e;">Supabase (PostgreSQL)</span>
+      <span class="badge" style="background:#082f49;color:#38bdf8;border-color:#0c4a6e;">Supabase (PostgreSQL + pgvector)</span>
       <span class="badge" style="background:#1e1b4b;color:#a5b4fc;border-color:#3730a3;">Claude Sonnet 4-2025</span>
       <span class="badge" style="background:#500724;color:#f9a8d4;border-color:#831843;">Claude Haiku 4.5</span>
       <span class="badge" style="background:#431407;color:#fbbf24;border-color:#78350f;">Google Places API</span>
       <span class="badge" style="background:#2e1065;color:#c084fc;border-color:#4c1d95;">Apify Scraper</span>
-      <span class="badge" style="background:#450a0a;color:#f87171;border-color:#7f1d1d;">No Auth</span>
-      <span class="badge" style="background:#042f2e;color:#2dd4bf;border-color:#115e59;">No Cache Layer</span>
-      <span class="badge" style="background:#0d1117;color:#8b949e;border-color:#30363d;">MVP Phase</span>
+      <span class="badge" style="background:#042f2e;color:#2dd4bf;border-color:#115e59;">Cohere Embeddings</span>
+      <span class="badge" style="background:#0c2d6b;color:#79c0ff;border-color:#1d4ed8;">Next.js 14 Dashboard</span>
+      <span class="badge" style="background:#161b22;color:#56d364;border-color:#238636;">Render Deploy</span>
+      <span class="badge" style="background:#0d1117;color:#8b949e;border-color:#30363d;">24h Report Cache</span>
     </div>
   </div>
 
@@ -275,7 +276,7 @@
         </div>
         <ul class="fn-list">
           <li class="fn-item"><span>FastAPI(title=<span class="fn-name">"VyaparAI Module 1"</span>, version=<span class="fn-name">"0.1.0"</span>)</span></li>
-          <li class="fn-item"><span>Registers 5 APIRouters via <span class="fn-name">include_router()</span></span></li>
+          <li class="fn-item"><span>Registers 6 APIRouters via <span class="fn-name">include_router()</span></span></li>
           <li class="fn-item"><span>Calls <span class="fn-name">setup_logging()</span> on import</span></li>
           <li class="fn-item"><span>Module-level <span class="fn-name">app = create_app()</span></span></li>
         </ul>
@@ -341,7 +342,7 @@
       <span class="layer-label lc-routes">03 · API Routes &nbsp;—&nbsp; app/api/</span>
       <div class="layer-line"></div>
     </div>
-    <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:12px;">
+    <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:12px;">
 
       <!-- onboard -->
       <div class="card a-green">
@@ -421,14 +422,30 @@
           <div class="card-icon ib-pink">✅</div>
           <div>
             <div class="card-title">actions.py</div>
-            <div class="card-subtitle"><span class="method get">GET</span>/actions/{id}</div>
+            <div class="card-subtitle"><span class="method post">POST</span>/<span class="method get">GET</span>/<span class="method post" style="background:#7f1d1d;color:#fda4af;">DEL</span>/actions</div>
           </div>
         </div>
         <ul class="fn-list">
-          <li class="fn-item"><span>Fetch latest <span class="fn-name">action</span> field</span></li>
-          <li class="fn-item"><span>From <span class="fn-name">health_scores</span> (latest row)</span></li>
-          <li class="fn-item"><span>Returns the single highest-impact action string</span></li>
-          <li class="fn-item"><span>Budget: ₹2,000 · Time: 3h</span></li>
+          <li class="fn-item"><span>Logs user interactions on insights</span></li>
+          <li class="fn-item"><span>Kinds: weekly_action_done, insight_actioned, insight_saved</span></li>
+          <li class="fn-item"><span>INSERT/SELECT/DELETE → <span class="fn-name">actions_log</span></span></li>
+        </ul>
+      </div>
+
+      <!-- competitors -->
+      <div class="card a-teal">
+        <div class="card-header">
+          <div class="card-icon ib-teal">🎯</div>
+          <div>
+            <div class="card-title">competitors.py</div>
+            <div class="card-subtitle"><span class="method post">POST</span>/<span class="method post" style="background:#7f1d1d;color:#fda4af;">DEL</span>/competitors/{id}</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span>Pin a Google place_id as a manual competitor</span></li>
+          <li class="fn-item"><span>Manual rows survive 7-day auto-rebuild</span></li>
+          <li class="fn-item"><span>UPSERT/DELETE → <span class="fn-name">competitor_matches</span> (is_manual=true)</span></li>
+          <li class="fn-item"><span>Used by frontend "Add competitor" search</span></li>
         </ul>
       </div>
 
@@ -442,7 +459,7 @@
   ════════════════════════════════════════════════════ -->
   <div class="layer">
     <div class="layer-header">
-      <span class="layer-label lc-pipeline">04 · /generate-report Pipeline — 9 Steps &nbsp;(app/api/report.py)</span>
+      <span class="layer-label lc-pipeline">04 · /generate-report Pipeline — 11 Steps &nbsp;(app/api/report.py)</span>
       <div class="layer-line"></div>
     </div>
     <div class="pipeline">
@@ -471,32 +488,44 @@
         <div class="step-detail">get_reviews(max=50) — bypasses Google 5-review cap. Non-fatal on failure</div>
       </div>
 
+      <div class="pipeline-step" style="background:#0a1a1f;">
+        <div class="step-num" style="background:#042f2e;color:#2dd4bf;">5</div>
+        <div class="step-title">Competitor Pipeline</div>
+        <div class="step-detail">competitor_pipeline.run() — Nearby+distance search → Haiku tag → brand top-up → Apify (parallel) → Cohere centroid → cosine ≥ 0.55. 7d cache + manual pins</div>
+      </div>
+
       <div class="pipeline-step" style="background:#001a0f;">
-        <div class="step-num" style="background:#053d2a;color:#56d364;">5</div>
+        <div class="step-num" style="background:#053d2a;color:#56d364;">6</div>
         <div class="step-title">POS Signals</div>
-        <div class="step-detail">pos_signals(biz_id, days=30) → revenue_trend, slow_cats, aov, repeat_rate. Never raises</div>
+        <div class="step-detail">pos_signals(biz_id, days=180) → revenue_trend, slow_cats, aov, repeat_rate. Never raises</div>
       </div>
 
       <div class="pipeline-step" style="background:#160a2e;">
-        <div class="step-num" style="background:#2e1065;color:#d2a8ff;">6</div>
+        <div class="step-num" style="background:#2e1065;color:#d2a8ff;">7</div>
         <div class="step-title">Classify Reviews</div>
         <div class="step-detail">classify_reviews() via Haiku → sentiment 1–5 + dominant_complaint topic. Non-fatal</div>
       </div>
 
       <div class="pipeline-step" style="background:#0c1a2e;">
-        <div class="step-num" style="background:#0c2d6b;color:#79c0ff;">7</div>
+        <div class="step-num" style="background:#0c2d6b;color:#79c0ff;">8</div>
         <div class="step-title">Sub-scores</div>
         <div class="step-detail">review_score() + competitor_score() + pos_score() → final_score + band (healthy/watch/at_risk)</div>
       </div>
 
       <div class="pipeline-step" style="background:#1a1000;">
-        <div class="step-num" style="background:#2d1a00;color:#ffa657;">8</div>
+        <div class="step-num" style="background:#2d1a00;color:#ffa657;">9</div>
         <div class="step-title">Insights</div>
         <div class="step-detail">generate_insights() via Claude Sonnet → 3–6 insights + 1 action. Retry ×1 on JSON fail</div>
       </div>
 
+      <div class="pipeline-step" style="background:#0a1a1f;">
+        <div class="step-num" style="background:#042f2e;color:#2dd4bf;">10</div>
+        <div class="step-title">Competitor Analysis</div>
+        <div class="step-detail">analyze_competitors() via Sonnet — themes (what competitors are praised for) + opportunities. Cached Apify reviews. Non-fatal</div>
+      </div>
+
       <div class="pipeline-step" style="background:#001a0f;">
-        <div class="step-num" style="background:#053d2a;color:#56d364;">9</div>
+        <div class="step-num" style="background:#053d2a;color:#56d364;">11</div>
         <div class="step-title">Persist</div>
         <div class="step-detail">INSERT INTO health_scores (scores, insights, action, report_payload). Non-fatal on fail</div>
       </div>
@@ -511,10 +540,10 @@
   ════════════════════════════════════════════════════ -->
   <div class="layer">
     <div class="layer-header">
-      <span class="layer-label lc-services">05 · Services Layer &nbsp;—&nbsp; app/services/ &nbsp;(7 modules)</span>
+      <span class="layer-label lc-services">05 · Services Layer &nbsp;—&nbsp; app/services/ &nbsp;(10 modules)</span>
       <div class="layer-line"></div>
     </div>
-    <div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:10px;">
+    <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:10px;">
 
       <!-- google_places.py -->
       <div class="card a-amber" style="font-size:11px;">
@@ -633,17 +662,72 @@
           <div class="card-icon ib-teal" style="width:24px;height:24px;font-size:13px;">🏆</div>
           <div>
             <div class="card-title" style="font-size:12px;">competitor_analysis.py</div>
-            <div class="card-subtitle">Competitor intel</div>
+            <div class="card-subtitle">Themes + opportunities</div>
           </div>
         </div>
         <ul class="fn-list">
           <li class="fn-item"><span class="fn-name">analyze_competitors()</span></li>
-          <li class="fn-item"><span>Themes extraction</span></li>
-          <li class="fn-item"><span>Opportunities list</span></li>
-          <li class="fn-item"><span>analyzed_count</span></li>
+          <li class="fn-item"><span>Sonnet over cached competitor reviews</span></li>
+          <li class="fn-item"><span>Themes (praise) + opportunities (gaps)</span></li>
           <li class="fn-item"><span>Non-fatal on failure</span></li>
         </ul>
-        <div style="margin-top:8px; padding:3px 6px; background:#042f2e; border-radius:4px; font-size:10px; color:#2dd4bf; text-align:center;">Google data → CompetitorAnalysis</div>
+        <div style="margin-top:8px; padding:3px 6px; background:#431407; border-radius:4px; font-size:10px; color:#fb923c; text-align:center;">→ Claude Sonnet 4-2025</div>
+      </div>
+
+      <!-- competitor_pipeline.py -->
+      <div class="card a-orange" style="font-size:11px;">
+        <div class="card-header" style="margin-bottom:8px; padding-bottom:8px;">
+          <div class="card-icon ib-orange" style="width:24px;height:24px;font-size:13px;">🧭</div>
+          <div>
+            <div class="card-title" style="font-size:12px;">competitor_pipeline.py</div>
+            <div class="card-subtitle">Discovery + similarity</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span class="fn-name">run()</span> · <span class="fn-name">add_manual_competitor()</span></li>
+          <li class="fn-item"><span>Nearby (paginated) + distance + brand top-up</span></li>
+          <li class="fn-item"><span>Hard pre-filters + Haiku sub-cat tag</span></li>
+          <li class="fn-item"><span>Parallel Apify (8 workers)</span></li>
+          <li class="fn-item"><span>Cosine ≥ 0.55 · 7d cache</span></li>
+        </ul>
+        <div style="margin-top:8px; padding:3px 6px; background:#042f2e; border-radius:4px; font-size:10px; color:#2dd4bf; text-align:center;">→ Cohere + Apify + Haiku</div>
+      </div>
+
+      <!-- embeddings.py -->
+      <div class="card a-indigo" style="font-size:11px;">
+        <div class="card-header" style="margin-bottom:8px; padding-bottom:8px;">
+          <div class="card-icon ib-indigo" style="width:24px;height:24px;font-size:13px;">🧬</div>
+          <div>
+            <div class="card-title" style="font-size:12px;">embeddings.py</div>
+            <div class="card-subtitle">Cohere centroids</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span class="fn-name">upsert_centroid()</span></li>
+          <li class="fn-item"><span class="fn-name">cosine_similarity()</span></li>
+          <li class="fn-item"><span class="fn-name">rank_by_similarity()</span></li>
+          <li class="fn-item"><span>SHA-256 text_hash cache</span></li>
+          <li class="fn-item"><span>1024-dim, multilingual v3</span></li>
+        </ul>
+        <div style="margin-top:8px; padding:3px 6px; background:#1e1b4b; border-radius:4px; font-size:10px; color:#a5b4fc; text-align:center;">→ Cohere + Supabase pgvector</div>
+      </div>
+
+      <!-- pos_column_matcher.py -->
+      <div class="card a-amber" style="font-size:11px;">
+        <div class="card-header" style="margin-bottom:8px; padding-bottom:8px;">
+          <div class="card-icon ib-amber" style="width:24px;height:24px;font-size:13px;">🔍</div>
+          <div>
+            <div class="card-title" style="font-size:12px;">pos_column_matcher.py</div>
+            <div class="card-subtitle">CSV column canonicaliser</div>
+          </div>
+        </div>
+        <ul class="fn-list">
+          <li class="fn-item"><span class="fn-name">canonicalise()</span></li>
+          <li class="fn-item"><span>L1 exact · L2 fuzzy (difflib) · L3 value-sniff</span></li>
+          <li class="fn-item"><span>Petpooja, DotPe, Tally, Vyapar formats</span></li>
+          <li class="fn-item"><span>No LLM — fully deterministic</span></li>
+        </ul>
+        <div style="margin-top:8px; padding:3px 6px; background:#1c1c2a; border-radius:4px; font-size:10px; color:#aaa; text-align:center;">Pure Python · 50 unit tests</div>
       </div>
 
     </div>
@@ -706,7 +790,7 @@
           <div class="card-icon ib-amber">🏁</div>
           <div>
             <div class="card-title">competitor_score( ) → 0–100</div>
-            <div class="card-subtitle">vs. nearby businesses within 800m</div>
+            <div class="card-subtitle">vs. similarity-filtered competitors (Cohere)</div>
           </div>
         </div>
         <div style="font-size:13px; font-family:monospace; color:#fbbf24; text-align:center; padding:12px; background:#1a1200; border-radius:6px; margin-bottom:12px; border:1px solid #422006;">
@@ -715,8 +799,10 @@
         <div style="font-size:11px;">
           <div class="ss-row"><span class="ss-label">Clamped to</span><span class="ss-pts">[0, 100]</span></div>
           <div class="ss-row"><span class="ss-label">No competitors found</span><span style="color:#fbbf24; font-family:monospace;">65 (neutral)</span></div>
-          <div class="ss-row"><span class="ss-label">Max competitors</span><span style="color:#fbbf24; font-family:monospace;">10 within 800m</span></div>
-          <div class="ss-row" style="border:none; padding-top:8px;"><span style="color:#8b949e; font-size:10px;">Example: my 4.5★ vs avg 4.0★ → 60 + (0.5 × 30) = 75</span></div>
+          <div class="ss-row"><span class="ss-label">Source</span><span style="color:#fbbf24; font-family:monospace; font-size:10px;">competitor_pipeline.run()</span></div>
+          <div class="ss-row"><span class="ss-label">Similarity threshold</span><span style="color:#fbbf24; font-family:monospace;">≥ 0.55 cosine</span></div>
+          <div class="ss-row"><span class="ss-label">Max competitors</span><span style="color:#fbbf24; font-family:monospace;">10 · 7-day cache</span></div>
+          <div class="ss-row" style="border:none; padding-top:8px;"><span style="color:#8b949e; font-size:10px;">Manual pins via /competitors/{id} always lead the list, never expire</span></div>
         </div>
       </div>
 
@@ -758,8 +844,8 @@
     </div>
     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
 
-      <!-- External APIs (2×2 grid) -->
-      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+      <!-- External APIs (2-col grid; 5 cards wrap) -->
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; align-content:start;">
 
         <!-- Google Places -->
         <div class="api-card a-amber">
@@ -828,12 +914,30 @@
             </div>
           </div>
           <ul class="fn-list">
-            <li class="fn-item"><span>Review classification (fast + cheap)</span></li>
-            <li class="fn-item"><span>Sentiment score per review (1–5)</span></li>
+            <li class="fn-item"><span>Review classification (sentiment 1–5)</span></li>
+            <li class="fn-item"><span>Competitor sub-category tagger (1 batched call)</span></li>
             <li class="fn-item"><span>max_tokens: 4096 (up to 50 reviews)</span></li>
             <li class="fn-item"><span>dominant_complaint topic extraction</span></li>
-            <li class="fn-item"><span>Catches polite 4★ with negative text</span></li>
             <li class="fn-item"><span>Env: <span class="fn-name">ANTHROPIC_API_KEY</span></span></li>
+          </ul>
+        </div>
+
+        <!-- Cohere -->
+        <div class="api-card a-teal" style="grid-column: span 2;">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+            <div style="font-size:26px; line-height:1;">🧬</div>
+            <div>
+              <div style="font-size:13px; font-weight:700; color:#2dd4bf;">Cohere</div>
+              <div class="api-model">embed-multilingual-v3.0 · 1024-dim</div>
+            </div>
+          </div>
+          <ul class="fn-list">
+            <li class="fn-item"><span>Embeds review text — handles Hinglish well</span></li>
+            <li class="fn-item"><span>Per-review + per-business-centroid units</span></li>
+            <li class="fn-item"><span>SHA-256 text_hash cache — never re-embed identical text</span></li>
+            <li class="fn-item"><span>Cosine similarity ≥ 0.55 to qualify as competitor</span></li>
+            <li class="fn-item"><span>Stored in <span class="fn-name">review_embeddings</span> (pgvector ivfflat)</span></li>
+            <li class="fn-item"><span>Env: <span class="fn-name">COHERE_API_KEY</span> · cohere==5.13.12</span></li>
           </ul>
         </div>
 
@@ -892,6 +996,75 @@
           <div class="db-col"><span>source</span><span class="type">TEXT &nbsp;("synthetic" | "real")</span></div>
         </div>
 
+        <!-- competitor_matches -->
+        <div class="db-table">
+          <div class="db-header" style="background:#042f2e; border-bottom:1px solid #115e59;">
+            <span style="font-size:18px;">🎯</span>
+            <span style="color:#2dd4bf; font-size:14px; font-weight:700;">competitor_matches</span>
+            <span style="margin-left:auto; font-size:10px; color:#8b949e;">7-day relationship cache · auto + manual</span>
+          </div>
+          <div class="db-col"><span class="pk">id</span><span class="type">BIGSERIAL &nbsp;PRIMARY KEY</span></div>
+          <div class="db-col"><span class="fk">business_id</span><span class="type">UUID &nbsp;FK ON DELETE CASCADE</span></div>
+          <div class="db-col"><span>competitor_pid</span><span class="type">TEXT &nbsp;(Google place_id)</span></div>
+          <div class="db-col"><span>competitor_name &nbsp;/ rating &nbsp;/ review_count</span><span class="type">TEXT &nbsp;/ NUMERIC &nbsp;/ INT</span></div>
+          <div class="db-col"><span>similarity</span><span class="type">NUMERIC &nbsp;[0..1] &nbsp;cosine</span></div>
+          <div class="db-col"><span>sub_category</span><span class="type">TEXT &nbsp;(Haiku tag)</span></div>
+          <div class="db-col"><span>is_manual</span><span class="type">BOOLEAN &nbsp;(default false; manual = evergreen)</span></div>
+          <div class="db-col"><span>matched_at</span><span class="type">TIMESTAMPTZ &nbsp;UNIQUE(business_id, competitor_pid)</span></div>
+        </div>
+
+        <!-- review_embeddings -->
+        <div class="db-table">
+          <div class="db-header" style="background:#1e1b4b; border-bottom:1px solid #3730a3;">
+            <span style="font-size:18px;">🧬</span>
+            <span style="color:#a5b4fc; font-size:14px; font-weight:700;">review_embeddings</span>
+            <span style="margin-left:auto; font-size:10px; color:#8b949e;">pgvector store · ivfflat cosine</span>
+          </div>
+          <div class="db-col"><span class="pk">id</span><span class="type">BIGSERIAL &nbsp;PRIMARY KEY</span></div>
+          <div class="db-col"><span>place_id &nbsp;/ review_id</span><span class="type">TEXT × 2 &nbsp;(review_id NULL = centroid)</span></div>
+          <div class="db-col"><span>is_centroid</span><span class="type">BOOLEAN</span></div>
+          <div class="db-col"><span>embedding</span><span class="type">vector(1024) &nbsp;(Cohere)</span></div>
+          <div class="db-col"><span>text_hash</span><span class="type">TEXT &nbsp;(SHA-256 cache key)</span></div>
+          <div class="db-col"><span>UNIQUE</span><span class="type">(place_id, review_id, is_centroid)</span></div>
+        </div>
+
+        <!-- external_reviews -->
+        <div class="db-table">
+          <div class="db-header" style="background:#2e1065; border-bottom:1px solid #4c1d95;">
+            <span style="font-size:18px;">🕷️</span>
+            <span style="color:#c084fc; font-size:14px; font-weight:700;">external_reviews</span>
+            <span style="margin-left:auto; font-size:10px; color:#8b949e;">Apify scraped review cache</span>
+          </div>
+          <div class="db-col"><span class="pk">place_id, review_id</span><span class="type">TEXT × 2 &nbsp;(unique pair)</span></div>
+          <div class="db-col"><span>rating &nbsp;/ text &nbsp;/ author_name</span><span class="type">INT &nbsp;/ TEXT × 2</span></div>
+          <div class="db-col"><span>posted_at &nbsp;/ owner_reply</span><span class="type">TIMESTAMPTZ &nbsp;/ TEXT</span></div>
+          <div class="db-col"><span>raw &nbsp;/ source</span><span class="type">JSONB &nbsp;/ TEXT</span></div>
+        </div>
+
+        <!-- review_syncs + actions_log condensed -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="db-table">
+            <div class="db-header" style="background:#1c1c2a; border-bottom:1px solid #3a3a4a;">
+              <span style="font-size:16px;">⏱️</span>
+              <span style="color:#aaa; font-size:13px; font-weight:700;">review_syncs</span>
+            </div>
+            <div class="db-col"><span class="pk">place_id</span><span class="type">TEXT &nbsp;UNIQUE</span></div>
+            <div class="db-col"><span>last_synced_at</span><span class="type">TIMESTAMPTZ</span></div>
+            <div class="db-col"><span>total_reviews &nbsp;/ source</span><span class="type">INT &nbsp;/ TEXT</span></div>
+            <div class="db-col" style="font-size:10px;"><span style="color:#8b949e;">Apify TTL: 7d own / 30d competitor</span></div>
+          </div>
+          <div class="db-table">
+            <div class="db-header" style="background:#500724; border-bottom:1px solid #831843;">
+              <span style="font-size:16px;">✅</span>
+              <span style="color:#f9a8d4; font-size:13px; font-weight:700;">actions_log</span>
+            </div>
+            <div class="db-col"><span class="pk">id</span><span class="type">UUID</span></div>
+            <div class="db-col"><span class="fk">business_id</span><span class="type">UUID FK</span></div>
+            <div class="db-col"><span>kind</span><span class="type">TEXT (3 enums)</span></div>
+            <div class="db-col"><span>target_text &nbsp;/ note</span><span class="type">TEXT × 2</span></div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -931,6 +1104,12 @@
         <div class="cfg"><span class="cfg-k">CATEGORY_POS_THRESHOLDS</span><span class="cfg-v">8 categories</span></div>
         <div class="cfg"><span class="cfg-k">VALID_CATEGORIES</span><span class="cfg-v">8 types</span></div>
         <div class="cfg"><span class="cfg-k">REVIEW_HALFLIFE_MONTHS</span><span class="cfg-v">6</span></div>
+        <div class="cfg"><span class="cfg-k">SIMILARITY_THRESHOLD</span><span class="cfg-v">0.55</span></div>
+        <div class="cfg"><span class="cfg-k">COMPETITOR_MATCH_TTL_DAYS</span><span class="cfg-v">7</span></div>
+        <div class="cfg"><span class="cfg-k">EMBEDDING_MODEL</span><span class="cfg-v">embed-multilingual-v3.0</span></div>
+        <div class="cfg"><span class="cfg-k">RETAIL_BRAND_KEYWORDS</span><span class="cfg-v">5 sub-cats</span></div>
+        <div class="cfg"><span class="cfg-k">SUBCATEGORIES_BY_CATEGORY</span><span class="cfg-v">Haiku tags</span></div>
+        <div class="cfg"><span class="cfg-k">NAME_EXCLUSION_KEYWORDS</span><span class="cfg-v">retail leaks</span></div>
       </div>
 
       <!-- database.py -->
@@ -946,7 +1125,7 @@
           <li class="fn-item"><span>create_client(SUPABASE_URL, SUPABASE_KEY)</span></li>
           <li class="fn-item"><span>Module-level singleton — imported once</span></li>
           <li class="fn-item"><span><span class="fn-name">from app.database import supabase</span></span></li>
-          <li class="fn-item"><span>All 4 routers + pos_pipeline share same client</span></li>
+          <li class="fn-item"><span>Shared by all 6 routers + services</span></li>
         </ul>
         <div style="padding:10px; background:#042f2e; border-radius:6px; font-size:11px;">
           <div style="color:#2dd4bf; font-weight:600; margin-bottom:6px;">Required env vars:</div>
@@ -989,8 +1168,9 @@
           <li class="fn-item"><span class="fn-name">ReportResponse</span><span style="color:#484f58;"> — full pipeline output</span></li>
           <li class="fn-item"><span class="fn-name">SubScores</span><span style="color:#484f58;"> — review, competitor, pos</span></li>
           <li class="fn-item"><span class="fn-name">Review</span><span style="color:#484f58;"> — rating, text, relative_time</span></li>
-          <li class="fn-item"><span class="fn-name">Competitor</span><span style="color:#484f58;"> — name, rating, review_count</span></li>
+          <li class="fn-item"><span class="fn-name">Competitor</span><span style="color:#484f58;"> — name, rating, review_count, place_id, is_manual, sub_category</span></li>
           <li class="fn-item"><span class="fn-name">CompetitorAnalysis</span><span style="color:#484f58;"> — themes, opportunities, analyzed_count</span></li>
+          <li class="fn-item"><span class="fn-name">PosSignals · WeeklyRevenue · CategoryRevenue · ActionEntry</span></li>
         </ul>
       </div>
 
@@ -1049,7 +1229,7 @@
         <div class="card-header">
           <div class="card-icon ib-purple">🧪</div>
           <div>
-            <div class="card-title">Tests &nbsp;—&nbsp; tests/ &nbsp;(7 files)</div>
+            <div class="card-title">Tests &nbsp;—&nbsp; tests/ &nbsp;(11 files)</div>
             <div class="card-subtitle">pytest &nbsp;·&nbsp; pytest.ini (testpaths=tests, pythonpath=.) &nbsp;·&nbsp; conftest.py</div>
           </div>
         </div>
@@ -1078,9 +1258,25 @@
             <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_pos_pipeline.py</div>
             <div style="color:#8b949e; line-height:1.4;">Ingest + signals. Requires live Supabase. Tests dedup logic and signal computation.</div>
           </div>
-          <div style="background:#21262d; padding:10px; border-radius:6px; grid-column: span 3;">
+          <div style="background:#21262d; padding:10px; border-radius:6px;">
             <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_csv_scoring.py</div>
             <div style="color:#8b949e; line-height:1.4;">CSV-based scoring with mock Google data. No Supabase needed. Fast offline test of scoring engine.</div>
+          </div>
+          <div style="background:#21262d; padding:10px; border-radius:6px;">
+            <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_competitor_pipeline.py</div>
+            <div style="color:#8b949e; line-height:1.4;">10 unit tests — pre-filters, sub-cat filter, cache hit, brand top-up, similarity ranking. All API calls mocked.</div>
+          </div>
+          <div style="background:#21262d; padding:10px; border-radius:6px;">
+            <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_embeddings.py</div>
+            <div style="color:#8b949e; line-height:1.4;">33 unit tests — text_hash normalisation, cosine edge cases, centroid builder, mocked Cohere. No external calls.</div>
+          </div>
+          <div style="background:#21262d; padding:10px; border-radius:6px;">
+            <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_pos_column_matcher.py</div>
+            <div style="color:#8b949e; line-height:1.4;">50 unit tests — L1 exact, L2 fuzzy, L3 value-sniff, granularity, customer placeholder cleaning. No external deps.</div>
+          </div>
+          <div style="background:#21262d; padding:10px; border-radius:6px;">
+            <div style="color:#d2a8ff; font-family:monospace; font-weight:700; margin-bottom:5px;">test_history.py</div>
+            <div style="color:#8b949e; line-height:1.4;">Tests /history/{id} response shape and ordering. Live Supabase.</div>
           </div>
         </div>
       </div>
@@ -1131,17 +1327,17 @@
   <div style="margin-top:24px; padding:18px 24px; background:#161b22; border:1px solid #30363d; border-radius:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
     <div style="font-size:12px; color:#8b949e;">
       <span style="color:#e6edf3; font-weight:700;">VyaparAI Module 1</span>
-      &nbsp;·&nbsp; MVP &nbsp;·&nbsp; No UI &nbsp;·&nbsp; No Auth &nbsp;·&nbsp; No Scheduler &nbsp;·&nbsp; No WhatsApp &nbsp;·&nbsp; No ML forecasting
+      &nbsp;·&nbsp; MVP on Render &nbsp;·&nbsp; Next.js dashboard &nbsp;·&nbsp; Supabase Google Sign-In &nbsp;·&nbsp; No Scheduler &nbsp;·&nbsp; No WhatsApp &nbsp;·&nbsp; No ML forecasting
     </div>
     <div style="font-size:11px; color:#484f58;">
-      Branch: main &nbsp;·&nbsp; Last updated: 27 Apr 2026 &nbsp;·&nbsp; Generated by Claude Sonnet 4.6
+      Branch: main &nbsp;·&nbsp; Last updated: 03 May 2026 &nbsp;·&nbsp; Generated by Claude Opus 4.7
     </div>
     <div style="display:flex; gap:14px; font-size:12px; color:#8b949e;">
-      <span>📁 app/ — 21 files</span>
-      <span>🧪 tests/ — 7 files</span>
+      <span>📁 app/ — 6 routers · 10 services</span>
+      <span>🧪 tests/ — 11 files</span>
       <span>🔧 scripts/ — 2 files</span>
-      <span>🗄️ 3 DB tables</span>
-      <span>4 external APIs</span>
+      <span>🗄️ 8 DB tables</span>
+      <span>5 external APIs</span>
     </div>
   </div>
 

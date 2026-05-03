@@ -10,11 +10,11 @@ Build a FastAPI backend that generates a 0–100 business health score for India
 
 ## Current phase
 
-MVP — building and testing locally. No deployment yet.
+MVP — backend deployed to Render via `render.yaml`; Next.js frontend in `vyaparai-frontend/`. Local development still primary.
 
 ## Architecture in one paragraph
 
-`app/main.py` is the lean FastAPI factory that registers 5 APIRouters from `app/api/` (onboard, pos, report, history, actions) plus a `/health` probe and CORS middleware. All env vars and constants live in `app/config.py`; all services import named constants from there. `app/database.py` holds the single Supabase client. `/onboard` registers a business (with optional Supabase `user_id` linkage). `/upload-pos` ingests a CSV into `pos_records`. `/generate-report` runs the full pipeline: `google_places.fetch_all_data()` → `apify_reviews.get_reviews()` augments with up to 50 scraped reviews → `review_classifier.classify_reviews()` Haiku-tags sentiment → `health_score` computes 3 sub-scores → `pos_pipeline.pos_signals()` computes POS signals → `insights.generate_insights()` calls Claude Sonnet → `competitor_analysis.analyze_competitors()` produces themes/opportunities → result + full payload saved to `health_scores`. Competitor relevance filtering is currently disabled — raw Google nearby results flow into `competitor_score()` (planned rewrite). The endpoint cache returns the latest payload < 24h old unless `?force=true`. `/history` returns past scores. `/actions/*` logs user interactions on insights. Auxiliary tables `external_reviews` + `review_syncs` cache Apify reviews; `actions_log` stores user actions.
+`app/main.py` is the lean FastAPI factory that registers 6 APIRouters from `app/api/` (onboard, pos, report, history, actions, competitors) plus a `/health` probe and CORS middleware. All env vars and constants live in `app/config.py`; all services import named constants from there. `app/database.py` holds the single Supabase client. `/onboard` registers a business (with optional Supabase `user_id` linkage). `/upload-pos` ingests a CSV into `pos_records`. `/generate-report` runs the full pipeline: `google_places.fetch_all_data()` → `apify_reviews.get_reviews()` augments with up to 50 scraped reviews → `competitor_pipeline.run()` builds the similarity-filtered competitor list (Cohere centroids + Apify review fetch) → `review_classifier.classify_reviews()` Haiku-tags sentiment → `health_score` computes 3 sub-scores → `pos_pipeline.pos_signals()` computes POS signals → `insights.generate_insights()` calls Claude Sonnet → `competitor_analysis.analyze_competitors()` produces themes/opportunities from cached competitor reviews → result + full payload saved to `health_scores`. The endpoint cache returns the latest payload < 24h old unless `?force=true`. `/competitors/{id}` lets users pin manual competitors that survive auto-discovery rebuilds. `/history` returns past scores. `/actions/*` logs user interactions on insights. Auxiliary tables `external_reviews` + `review_syncs` cache Apify reviews; `review_embeddings` + `competitor_matches` back the competitor pipeline; `actions_log` stores user actions.
 
 ## Tech stack
 
@@ -67,17 +67,22 @@ MVP — building and testing locally. No deployment yet.
 | `conftest.py` | exists | Empty conftest marks project root for pytest |
 | `pytest.ini` | exists | testpaths = tests, pythonpath = . |
 | `data/business_biz_00{1-5}_pos.csv` | exists — generated | 90-day synthetic POS CSVs (360–450 rows each); re-generate with `python scripts/generate_synthetic_pos.py` |
+| `migrations/2026-04-30-competitor-pipeline-v2.sql` | applied | Creates `review_embeddings` and `competitor_matches` |
+| `migrations/2026-05-02-manual-competitors.sql` | applied | Adds `is_manual` column + index to `competitor_matches` |
+| `migrations/add_customer_columns.sql` | applied | Adds nullable `unique_customers` + `returning_customers` to `pos_records` |
+| `render.yaml` | exists | Render web-service deployment config for the FastAPI backend |
+| `vyaparai-frontend/` | exists | Next.js 14 (App Router) dashboard — Supabase Google Sign-In, Competitors tab with manual-add search + insight cards |
 
 ## Database tables
 
 - `businesses` — id, name, place_id (unique), category, owner_name, is_active, user_id (Supabase auth link, optional)
 - `health_scores` — id, business_id, final_score, review_score, competitor_score, pos_score, google_rating, total_reviews, insights (JSONB), action, report_payload (JSONB — full ReportResponse used by the 24h cache), created_at
-- `pos_records` — id, business_id, date, product_category, units_sold, revenue, transaction_count, avg_order_value, source
+- `pos_records` — id, business_id, date, product_category, units_sold, revenue, transaction_count, avg_order_value, source, unique_customers (nullable), returning_customers (nullable) — last two columns added via `migrations/add_customer_columns.sql`
 - `actions_log` — id, business_id, kind ('weekly_action_done' | 'insight_actioned' | 'insight_saved'), target_text, note, created_at
 - `external_reviews` — place_id, review_id (unique pair), source, rating, text, author_name, posted_at, owner_reply, raw (JSONB) — Apify cache
 - `review_syncs` — place_id (unique), last_synced_at, total_reviews, source — Apify TTL marker (7d own / 30d competitor)
 - `review_embeddings` — id, place_id, review_id (NULL for centroid rows), is_centroid, embedding (`vector(1024)`), text_hash (SHA-256 cache key), created_at — pgvector store for Cohere embeddings. ivfflat cosine index. UNIQUE (place_id, review_id, is_centroid)
-- `competitor_matches` — id, business_id (FK businesses), competitor_pid, competitor_name, rating, review_count, similarity (cosine 0..1), sub_category, matched_at — relationship cache, refreshed every 7 days. UNIQUE (business_id, competitor_pid)
+- `competitor_matches` — id, business_id (FK businesses), competitor_pid, competitor_name, rating, review_count, similarity (cosine 0..1), sub_category, is_manual (BOOLEAN, default false — pinned via `/competitors/{id}`, not wiped by 7-day rebuild), matched_at — relationship cache. UNIQUE (business_id, competitor_pid)
 
 ## Health score formula
 
@@ -157,7 +162,10 @@ uvicorn app.main:app --reload
 
 ---
 
-*Last updated: 02 May 2026 (Session 11 — **Mall-tenant fix + manual competitors + rich dashboard.** Three layered fixes for retail discovery (Phoenix Mall blind spot): (1) `places_nearby` now paginates 2 pages and adds a `rank_by=distance` call; (2) Text Search top-up via `RETAIL_BRAND_KEYWORDS` per Haiku sub-category tag; (3) `NAME_EXCLUSION_KEYWORDS` wired as a hard filter (drops Sunglass Hut/luggage/etc.). Sub-category vocab expanded with `eyewear`, `luggage`, `jewellery`. Apify competitor fetches parallelised (8 workers) and brand-top-up text-searches parallelised — cold-cache /generate-report dropped from minutes to ~35–45s. **Manual competitors:** new `is_manual` column on `competitor_matches` (migration `2026-05-02-manual-competitors.sql`), POST/DELETE `/competitors/{business_id}` router, split cache reads (auto with TTL vs manual evergreen). Frontend Competitors tab now has debounced manual-add search, "Added" badge with × remove, 4-tile hero strip (rank, rating gap, volume percentile, credible threats), Sonnet themes/opportunities panel, volume leaders, sub-category mix bar. Threat criteria tightened — requires `rating > yours AND review_count >= 50 AND >= 10% your volume`.)*
+*Last updated: 03 May 2026 (Doc sync — refreshed Architecture paragraph to mention the 6th router (`competitors`) and the now-wired `competitor_pipeline.run()` step in the report flow; removed the stale "Competitor relevance filtering is currently disabled" line. Added `is_manual` column to `competitor_matches` schema description and `unique_customers` / `returning_customers` columns to `pos_records`. Documented `migrations/add_customer_columns.sql`, `render.yaml`, and the `vyaparai-frontend/` Next.js app in the Key Files table. No code changes — docs only.)*
+
+*Session 11 archive (02 May 2026 — Mall-tenant fix + manual competitors + rich dashboard):
+Three layered fixes for retail discovery (Phoenix Mall blind spot): (1) `places_nearby` now paginates 2 pages and adds a `rank_by=distance` call; (2) Text Search top-up via `RETAIL_BRAND_KEYWORDS` per Haiku sub-category tag; (3) `NAME_EXCLUSION_KEYWORDS` wired as a hard filter (drops Sunglass Hut/luggage/etc.). Sub-category vocab expanded with `eyewear`, `luggage`, `jewellery`. Apify competitor fetches parallelised (8 workers) and brand-top-up text-searches parallelised — cold-cache /generate-report dropped from minutes to ~35–45s. **Manual competitors:** new `is_manual` column on `competitor_matches` (migration `2026-05-02-manual-competitors.sql`), POST/DELETE `/competitors/{business_id}` router, split cache reads (auto with TTL vs manual evergreen). Frontend Competitors tab now has debounced manual-add search, "Added" badge with × remove, 4-tile hero strip, Sonnet themes/opportunities panel, volume leaders, sub-category mix bar. Threat criteria tightened — requires `rating > yours AND review_count >= 50 AND >= 10% your volume`. Cohere downgraded 6.1.0 → 5.13.12 to unblock Render build (pydantic-core conflict).*
 
 *Session 10 archive (30 April 2026 — Competitor pipeline v2 (embeddings)):
 Built the pipeline using Cohere `embed-multilingual-v3.0` (1024-dim) and Supabase `pgvector`. Two new tables (`review_embeddings`, `competitor_matches`) added via `migrations/2026-04-30-competitor-pipeline-v2.sql`. Cost per report: 1 Haiku tag call + 1 Sonnet insights call + 1 Cohere embed batch (~24k tokens ≈ $0.0024) on cache miss; cache hits cost only the Sonnet insights call.*
