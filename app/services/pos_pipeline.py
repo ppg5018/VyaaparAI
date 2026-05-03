@@ -120,21 +120,29 @@ def ingest_pos_csv(filepath: str, business_id: str) -> int:
         len(df), df["date"].min(), df["date"].max(),
     )
 
-    # Duplicate detection
+    # Duplicate detection. Key includes product_name when the upload has it
+    # so per-item rollups don't all collapse to the first item per category.
+    has_product = "product_name" in df.columns
     unique_dates = df["date"].unique().tolist()
     existing_set: set[tuple] = set()
     if unique_dates:
         try:
             existing = (
                 supabase.table("pos_records")
-                .select("date, product_category")
+                .select("date, product_category, product_name")
                 .eq("business_id", business_id)
                 .in_("date", unique_dates)
                 .execute()
             )
-            existing_set = {
-                (r["date"], r["product_category"]) for r in existing.data
-            }
+            if has_product:
+                existing_set = {
+                    (r["date"], r["product_category"], r.get("product_name"))
+                    for r in existing.data
+                }
+            else:
+                existing_set = {
+                    (r["date"], r["product_category"]) for r in existing.data
+                }
         except Exception as exc:
             raise RuntimeError(
                 f"Failed to query existing pos_records for business {business_id}: {exc}"
@@ -142,15 +150,23 @@ def ingest_pos_csv(filepath: str, business_id: str) -> int:
 
     if existing_set:
         before = len(df)
-        df = df[
-            ~df.apply(
-                lambda row: (row["date"], row["product_category"]) in existing_set,
-                axis=1,
-            )
-        ]
+        if has_product:
+            df = df[
+                ~df.apply(
+                    lambda row: (row["date"], row["product_category"], row.get("product_name")) in existing_set,
+                    axis=1,
+                )
+            ]
+        else:
+            df = df[
+                ~df.apply(
+                    lambda row: (row["date"], row["product_category"]) in existing_set,
+                    axis=1,
+                )
+            ]
         skipped = before - len(df)
         logger.warning(
-            "Skipped %d duplicate (date, category) combinations for business_id=%s",
+            "Skipped %d duplicate row(s) for business_id=%s",
             skipped, business_id,
         )
 
@@ -161,10 +177,13 @@ def ingest_pos_csv(filepath: str, business_id: str) -> int:
     df["business_id"] = business_id
     df["source"] = "synthetic"
 
-    # Include optional customer columns only when the CSV provides them.
+    # Include optional product_name + customer columns only when the CSV provides them.
     base_cols = ["business_id", "date", "product_category", "units_sold", "revenue",
                  "transaction_count", "avg_order_value", "source"]
-    optional_cols = [c for c in ("unique_customers", "returning_customers") if c in df.columns]
+    optional_cols = [
+        c for c in ("product_name", "unique_customers", "returning_customers")
+        if c in df.columns
+    ]
     records = df[base_cols + optional_cols].to_dict("records")
 
     total_inserted = 0
@@ -233,13 +252,27 @@ def pos_signals(business_id: str, days: int = 30, category: str = "") -> dict:
     recent_df = df[df["date"] >= recent_cutoff]
     prior_df = df[df["date"] < recent_cutoff]
 
-    # Revenue trend
+    # Revenue trend. Primary path: configured `days` window vs the prior
+    # `days` window. Fallback: when the prior window is empty (short upload
+    # — e.g. a fresh 3-month Petpooja CSV against a 180-day window), split
+    # the available data 50/50 by date midpoint so the user still gets a
+    # meaningful signal instead of a blank.
     trend = None
     try:
         recent_rev = recent_df["revenue"].sum()
         prior_rev = prior_df["revenue"].sum()
         if prior_rev > 0:
             trend = round(((recent_rev - prior_rev) / prior_rev) * 100, 1)
+        elif not df.empty:
+            mid = df["date"].min() + (df["date"].max() - df["date"].min()) / 2
+            second_half_rev = df[df["date"] >= mid]["revenue"].sum()
+            first_half_rev = df[df["date"] < mid]["revenue"].sum()
+            if first_half_rev > 0:
+                trend = round(((second_half_rev - first_half_rev) / first_half_rev) * 100, 1)
+                logger.info(
+                    "revenue_trend_pct: prior %d-day window empty, used 50/50 split (rev %.0f → %.0f, trend=%.1f%%)",
+                    days, first_half_rev, second_half_rev, trend,
+                )
     except Exception as exc:
         logger.warning("revenue_trend_pct computation failed: %s", exc)
 
@@ -280,13 +313,23 @@ def pos_signals(business_id: str, days: int = 30, category: str = "") -> dict:
         logger.warning("slow_categories computation failed: %s", exc)
         slow_cats = []
 
-    # Top product by revenue in recent period
+    # Top product by revenue in recent period. Prefer product_name when the
+    # upload preserved it (Petpooja/DotPe ItemName). Fall back to category
+    # for files that only have a category column.
     top_product = None
     try:
-        if not recent_df.empty:
-            top_product = (
-                recent_df.groupby("product_category")["revenue"].sum().idxmax()
-            )
+        scope = recent_df if not recent_df.empty else df
+        if not scope.empty:
+            if "product_name" in scope.columns:
+                named = scope[scope["product_name"].notna() & (scope["product_name"] != "")]
+                if not named.empty:
+                    top_product = (
+                        named.groupby("product_name")["revenue"].sum().idxmax()
+                    )
+            if not top_product:
+                top_product = (
+                    scope.groupby("product_category")["revenue"].sum().idxmax()
+                )
     except Exception as exc:
         logger.warning("top_product computation failed: %s", exc)
 

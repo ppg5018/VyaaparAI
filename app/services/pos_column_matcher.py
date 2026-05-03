@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 CANONICAL_FIELDS = (
     "date",
     "product_category",
+    "product_name",
     "invoice_id",
     "units_sold",
     "revenue",
@@ -85,6 +86,18 @@ SYNONYMS: dict[str, list[str]] = {
         "productClass", "Product Class", "subcategory", "subCategory",
         "Sub Category", "sub_category", "main_category", "Main Category",
         "cat", "Cat", "category_code", "Category Code",
+    ],
+    "product_name": [
+        "product_name", "productName", "Product Name", "product", "Product",
+        "item_name", "itemName", "Item Name", "ItemName",
+        "item", "Item",
+        "dish_name", "dishName", "Dish Name", "dish", "Dish",
+        "menu_item", "menuItem", "Menu Item", "menu_name", "Menu Name",
+        "item_description", "Item Description", "Description", "description",
+        "sku_name", "SKU Name", "sku", "SKU",
+        "product_title", "Product Title", "title", "Title",
+        "product_label", "Product Label", "name_of_item", "Name of Item",
+        "service_name", "Service Name", "particulars", "Particulars",
     ],
     "invoice_id": [
         "invoice_id", "invoiceId", "Invoice ID", "Invoice No", "invoice_no",
@@ -644,14 +657,21 @@ def detect_granularity(df: pd.DataFrame, mapping: dict[str, str]) -> str:
 
 
 def _aggregate_line_items(df: pd.DataFrame) -> pd.DataFrame:
-    """Roll line-item rows into the per-day-per-category pos_records shape.
+    """Roll line-item rows into the per-day-per-(category, product_name)
+    pos_records shape.
+
+    When `product_name` is present we add it as an extra group-by key so the
+    actual item identity survives aggregation — this is what `top_product`
+    consumes downstream. When absent, the rollup is pure per-(date, category)
+    as before.
 
     Customer stats (unique / returning) are computed per-day, NOT per-category,
-    then joined back onto each (date, category) row.
+    then joined back onto each row.
     """
     has_invoice = "invoice_id" in df.columns
     has_units = "units_sold" in df.columns
     has_customer = "customer_identifier" in df.columns
+    has_product = "product_name" in df.columns
 
     # Returning-customer flag is whole-upload scope: appears on >1 distinct date.
     returning_set: set[str] = set()
@@ -661,8 +681,12 @@ def _aggregate_line_items(df: pd.DataFrame) -> pd.DataFrame:
         )["date"].nunique()
         returning_set = set(cust_dates[cust_dates > 1].index)
 
-    # Per-(date, category) aggregation.
-    grouped = df.groupby(["date", "product_category"], dropna=False)
+    # Group key: (date, product_category) — plus product_name if available.
+    group_keys = ["date", "product_category"]
+    if has_product:
+        group_keys = group_keys + ["product_name"]
+
+    grouped = df.groupby(group_keys, dropna=False)
     agg_dict: dict[str, str] = {"revenue": "sum"}
     if has_units:
         agg_dict["units_sold"] = "sum"
@@ -671,11 +695,11 @@ def _aggregate_line_items(df: pd.DataFrame) -> pd.DataFrame:
     if has_invoice:
         txn = (
             df.dropna(subset=["invoice_id"])
-            .groupby(["date", "product_category"])["invoice_id"]
+            .groupby(group_keys)["invoice_id"]
             .nunique()
             .reset_index(name="transaction_count")
         )
-        agg = agg.merge(txn, on=["date", "product_category"], how="left")
+        agg = agg.merge(txn, on=group_keys, how="left")
         agg["transaction_count"] = agg["transaction_count"].fillna(0).astype(int).clip(lower=1)
     else:
         agg["transaction_count"] = 1
@@ -813,7 +837,8 @@ def canonicalise(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     # Order the output columns to match pos_records. Include any optional
     # pre-aggregated columns (unique_customers / returning_customers) that
     # were either in the source file or computed during line-item aggregation.
-    ordered = ["date", "product_category", "units_sold", "revenue",
+    ordered = ["date", "product_category", "product_name",
+               "units_sold", "revenue",
                "transaction_count", "avg_order_value",
                "unique_customers", "returning_customers"]
     out = out[[c for c in ordered if c in out.columns]]
