@@ -262,6 +262,113 @@ def test_run_no_own_reviews_skips_similarity():
     check(len(rank_called) == 0, "rank_by_similarity NOT called when no own centroid")
 
 
+# ── Custom-prefs override path ───────────────────────────────────────────────
+
+
+def test_drop_dead_listings_with_override_floor():
+    print("\n--- _drop_dead_listings(override_floor) ---")
+    competitors = [
+        {"name": "small", "review_count": 10},
+        {"name": "med",   "review_count": 80},
+        {"name": "big",   "review_count": 500},
+    ]
+    out = cp._drop_dead_listings(competitors, "restaurant", override_floor=100)
+    names = {c["name"] for c in out}
+    check(names == {"big"}, "override_floor=100 drops below-100, keeps big")
+
+
+def test_drop_above_max_reviews():
+    print("\n--- _drop_above_max_reviews ---")
+    competitors = [
+        {"name": "small", "review_count": 10},
+        {"name": "med",   "review_count": 80},
+        {"name": "big",   "review_count": 5000},
+    ]
+    out = cp._drop_above_max_reviews(competitors, 1000)
+    names = {c["name"] for c in out}
+    check(names == {"small", "med"}, "cap=1000 drops big, keeps the rest")
+    check(cp._drop_above_max_reviews(competitors, None) == competitors,
+          "cap=None is a no-op")
+
+
+def test_drop_wrong_subcategory_with_allowed_set():
+    print("\n--- _drop_wrong_subcategory(allowed) ---")
+    candidates = [
+        {"name": "a", "place_id": "p1"},
+        {"name": "b", "place_id": "p2"},
+        {"name": "c", "place_id": "p3"},
+    ]
+    tags = {"__me__": "south_indian", "p1": "south_indian",
+            "p2": "biryani", "p3": "fast_food"}
+    out = cp._drop_wrong_subcategory(
+        candidates, tags, allowed={"south_indian", "biryani"},
+    )
+    names = {c["name"] for c in out}
+    check(names == {"a", "b"}, "allowed-set widens beyond '__me__'")
+
+
+def test_run_custom_radius_passed_through():
+    print("\n--- run() with custom radius ---")
+    cp._read_cache = lambda biz_id: None  # type: ignore
+    cp._write_cache = lambda biz_id, matches: None  # type: ignore
+    cp._read_manuals = lambda biz_id: []  # type: ignore
+    cp._load_prefs = lambda biz_id: ("custom", {  # type: ignore
+        "radius_m": 1500, "min_reviews": 0, "max_reviews": None, "subcategories": [],
+    })
+
+    captured = {}
+    def fake_nearby(*, lat, lng, category, exclude_place_id, radius=800):
+        captured["radius"] = radius
+        return []
+    cp.google_places.get_nearby_competitors = fake_nearby  # type: ignore
+
+    cp.run(
+        business_id="biz-radius",
+        my_business={"place_id": "ChIJme", "name": "X",
+                     "category": "restaurant", "lat": 12.97, "lng": 77.59},
+        my_reviews=[{"text": "good"}],
+    )
+    check(captured.get("radius") == 1500, "custom radius_m=1500 passed to nearby search")
+
+
+def test_run_custom_min_max_review_filter():
+    print("\n--- run() with min/max review filters ---")
+    cp._read_cache = lambda biz_id: None  # type: ignore
+    cp._write_cache = lambda biz_id, matches: None  # type: ignore
+    cp._read_manuals = lambda biz_id: []  # type: ignore
+    cp._load_prefs = lambda biz_id: ("custom", {  # type: ignore
+        "radius_m": 800, "min_reviews": 100, "max_reviews": 1000,
+        "subcategories": [],
+    })
+
+    candidates = [
+        {"name": "tiny", "place_id": "p1", "rating": 4.0, "review_count": 50,
+         "types": ["restaurant"]},
+        {"name": "ok",   "place_id": "p2", "rating": 4.3, "review_count": 300,
+         "types": ["restaurant"]},
+        {"name": "huge", "place_id": "p3", "rating": 4.5, "review_count": 5000,
+         "types": ["restaurant"]},
+    ]
+    cp.google_places.get_nearby_competitors = lambda **kw: candidates  # type: ignore
+    cp._tag_subcategories = lambda **kw: {}  # type: ignore — no tags, no subcat filter
+    cp.apify_reviews.get_reviews = lambda pid, max_reviews, is_competitor: [  # type: ignore
+        {"text": f"review for {pid}"}
+    ]
+    cp.embeddings.upsert_centroid = lambda pid, texts: [1.0, 0.0, 0.0]  # type: ignore
+    cp.embeddings.rank_by_similarity = lambda my_centroid, candidates: [  # type: ignore
+        {**c, "similarity": 0.85} for c in candidates
+    ]
+
+    out = cp.run(
+        business_id="biz-range",
+        my_business={"place_id": "ChIJme", "name": "X",
+                     "category": "restaurant", "lat": 12.97, "lng": 77.59},
+        my_reviews=[{"text": "good"}],
+    )
+    names = [r["name"] for r in out]
+    check(names == ["ok"], f"min=100 max=1000 keeps only 'ok' (got {names})")
+
+
 # ── Run ──────────────────────────────────────────────────────────────────────
 
 
@@ -276,6 +383,11 @@ def main():
     test_run_happy_path()
     test_run_below_threshold_keeps_top_3()
     test_run_no_own_reviews_skips_similarity()
+    test_drop_dead_listings_with_override_floor()
+    test_drop_above_max_reviews()
+    test_drop_wrong_subcategory_with_allowed_set()
+    test_run_custom_radius_passed_through()
+    test_run_custom_min_max_review_filter()
 
     print(f"\n{'=' * 50}")
     print(f"Total: {passed + failed}  |  Passed: {passed}  |  Failed: {failed}")

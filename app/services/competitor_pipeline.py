@@ -281,10 +281,60 @@ def remove_manual_competitor(business_id: str, place_id: str) -> bool:
 # ── Hard pre-filters (cheap, deterministic) ──────────────────────────────────
 
 
-def _drop_dead_listings(competitors: list[dict], category: str) -> list[dict]:
-    """Drop competitors below the category-specific review-count floor."""
-    floor = CATEGORY_MIN_COMPETITOR_REVIEWS.get(category, MIN_COMPETITOR_REVIEWS)
+def _drop_dead_listings(
+    competitors: list[dict],
+    category: str,
+    override_floor: int | None = None,
+) -> list[dict]:
+    """Drop competitors below the review-count floor.
+
+    If override_floor is given (custom prefs path), use it; otherwise fall
+    back to the per-category default.
+    """
+    if override_floor is not None:
+        floor = override_floor
+    else:
+        floor = CATEGORY_MIN_COMPETITOR_REVIEWS.get(category, MIN_COMPETITOR_REVIEWS)
     return [c for c in competitors if c.get("review_count", 0) >= floor]
+
+
+def _drop_above_max_reviews(
+    competitors: list[dict],
+    cap: int | None,
+) -> list[dict]:
+    """Custom-prefs path: drop competitors above the user-set max review count."""
+    if cap is None:
+        return list(competitors)
+    return [c for c in competitors if (c.get("review_count", 0) or 0) <= cap]
+
+
+def _load_prefs(business_id: str) -> tuple[str, dict | None]:
+    """Read competitor_prefs_mode + competitor_prefs for this business.
+
+    Returns ('auto', None) for any read failure or for businesses that haven't
+    set prefs yet — preserving today's hardcoded-default behaviour.
+    """
+    try:
+        resp = (
+            supabase.table("businesses")
+            .select("competitor_prefs_mode, competitor_prefs")
+            .eq("id", business_id)
+            .execute()
+        )
+    except Exception as exc:
+        logger.warning("[competitor_pipeline] prefs read failed: %s", exc)
+        return ("auto", None)
+    if not resp.data:
+        return ("auto", None)
+    row = resp.data[0]
+    mode = row.get("competitor_prefs_mode") or "auto"
+    prefs = row.get("competitor_prefs")
+    if isinstance(prefs, str):
+        try:
+            prefs = json.loads(prefs)
+        except Exception:
+            prefs = None
+    return (mode, prefs)
 
 
 def _drop_excluded_primary_types(competitors: list[dict], category: str) -> list[dict]:
@@ -332,15 +382,20 @@ def _drop_excluded_name_keywords(
 def _drop_wrong_subcategory(
     candidates: list[dict],
     tags: dict[str, str],
+    allowed: set[str] | None = None,
 ) -> list[dict]:
-    """Keep only candidates that share the user's sub-category tag.
+    """Keep only candidates whose Haiku tag is in the allow-set.
 
-    No-op when my tag is missing or "general" — Haiku didn't give us a usable signal.
+    Default allow-set is `{tags['__me__']}` (today's behaviour, no-op when
+    my tag is missing or "general"). Callers in the custom-prefs path pass
+    the user-chosen union of sub-categories instead.
     """
-    my_tag = tags.get("__me__")
-    if not my_tag or my_tag == "general":
-        return list(candidates)
-    return [c for c in candidates if tags.get(c.get("place_id")) == my_tag]
+    if allowed is None:
+        my_tag = tags.get("__me__")
+        if not my_tag or my_tag == "general":
+            return list(candidates)
+        allowed = {my_tag}
+    return [c for c in candidates if tags.get(c.get("place_id")) in allowed]
 
 
 def _topup_branded_retail(
@@ -432,12 +487,31 @@ def run(
         logger.warning("[competitor_pipeline] missing my place_id — returning empty")
         return []
 
-    # 1. Discovery — Google Nearby Search (800m).
+    # 0b. Read user-configurable overrides (mode='auto' → all None).
+    prefs_mode, prefs = _load_prefs(business_id)
+    override_radius: int | None = None
+    override_min: int | None = None
+    override_max: int | None = None
+    override_subcats: set[str] | None = None
+    if prefs_mode == "custom" and isinstance(prefs, dict):
+        override_radius = prefs.get("radius_m")
+        override_min = prefs.get("min_reviews")
+        override_max = prefs.get("max_reviews")
+        subs = prefs.get("subcategories") or []
+        if subs:
+            override_subcats = set(subs)
+        logger.info(
+            "[competitor_pipeline.run] mode=custom override radius=%s min=%s max=%s subcats=%s",
+            override_radius, override_min, override_max, override_subcats,
+        )
+
+    # 1. Discovery — Google Nearby Search.
     try:
         candidates = google_places.get_nearby_competitors(
             lat=my_business["lat"],
             lng=my_business["lng"],
             category=category,
+            radius=override_radius if override_radius else COMPETITOR_RADIUS_METERS,
             exclude_place_id=my_place_id,
         )
     except Exception as exc:
@@ -449,8 +523,9 @@ def run(
         _write_cache(business_id, [])
         return _merge_manuals_and_auto(manuals, [])
 
-    # 2. Hard pre-filters (no API cost).
-    survivors = _drop_dead_listings(candidates, category)
+    # 2. Hard pre-filters (no API cost). Honour user min/max in custom mode.
+    survivors = _drop_dead_listings(candidates, category, override_floor=override_min)
+    survivors = _drop_above_max_reviews(survivors, override_max)
     survivors = _drop_excluded_primary_types(survivors, category)
     survivors = _drop_excluded_name_keywords(
         survivors, category, my_business.get("name", ""),
@@ -494,7 +569,11 @@ def run(
             tags[b["place_id"]] = my_tag
         survivors = survivors + branded
 
-    by_subcat = _drop_wrong_subcategory(survivors, tags) if tags else survivors
+    by_subcat = (
+        _drop_wrong_subcategory(survivors, tags, allowed=override_subcats)
+        if tags
+        else survivors
+    )
 
     # If the sub-category filter wiped everyone, fall back to the pre-tag set —
     # a single Haiku misclassification shouldn't collapse the whole pipeline.
