@@ -13,6 +13,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.get("/pos-dashboard/{business_id}")
+def pos_dashboard(
+    business_id: str,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    category: str | None = None,
+) -> dict:
+    """Aggregated POS metrics, charts, and operational insights for the dashboard.
+
+    Query params:
+        from_date: ISO date YYYY-MM-DD (defaults to earliest record).
+        to_date:   ISO date YYYY-MM-DD (defaults to latest record).
+        category:  optional product_category filter.
+    """
+    biz = supabase.table("businesses").select("id").eq("id", business_id).execute()
+    if not biz.data:
+        raise HTTPException(status_code=404, detail=f"Business {business_id} not found")
+    return pos_pipeline.dashboard_data(business_id, from_date, to_date, category)
+
+
 @router.post("/upload-pos/{business_id}", response_model=UploadPOSResponse)
 async def upload_pos(business_id: str, file: UploadFile = File(...)) -> UploadPOSResponse:
     """Ingest a POS CSV file for an existing business."""
