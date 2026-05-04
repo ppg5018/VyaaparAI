@@ -68,15 +68,36 @@ def onboard_business(req: OnboardRequest) -> OnboardResponse:
                 status_code=503, detail="Google Places API unavailable — try again later"
             )
 
-        # 3. Check for duplicate
+        # 3. Check for duplicate. If the existing row is an orphan (no user_id)
+        # and the caller supplied one, adopt it instead of 409-ing — this is
+        # what real users will hit when the row was created by a pre-auth flow,
+        # seed data, or another pipeline. If the existing row already belongs
+        # to someone else, refuse so we don't transfer ownership silently.
         existing = (
-            supabase.table("businesses").select("id").eq("place_id", resolved_place_id).execute()
+            supabase.table("businesses").select("id, user_id")
+            .eq("place_id", resolved_place_id).execute()
         )
         if existing.data:
-            existing_id = existing.data[0]["id"]
+            existing_row = existing.data[0]
+            existing_id = existing_row["id"]
+            existing_uid = existing_row.get("user_id")
+            if req.user_id and not existing_uid:
+                supabase.table("businesses").update(
+                    {"user_id": req.user_id}
+                ).eq("id", existing_id).execute()
+                logger.info(
+                    "[onboard] adopted orphan business_id=%s for user_id=%s",
+                    existing_id, req.user_id,
+                )
+                return OnboardResponse(
+                    business_id=existing_id,
+                    name=req.name,
+                    place_id=resolved_place_id,
+                    google_verified_name=google_verified_name,
+                )
             logger.warning(
-                "[onboard] place_id=%s already exists as business_id=%s",
-                resolved_place_id, existing_id,
+                "[onboard] place_id=%s already exists as business_id=%s (owned=%s)",
+                resolved_place_id, existing_id, bool(existing_uid),
             )
             raise HTTPException(
                 status_code=409,
