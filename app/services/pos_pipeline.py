@@ -108,10 +108,12 @@ def ingest_pos_csv(filepath: str, business_id: str) -> int:
                 f"{bad.iloc[0].to_dict()}"
             )
 
-    neg_rev = df[df["revenue"] < 0]
-    if not neg_rev.empty:
-        raise ValueError(
-            f"Negative revenue at row {neg_rev.index[0]}: {neg_rev.iloc[0].to_dict()}"
+    neg_rev_count = int((df["revenue"] < 0).sum())
+    if neg_rev_count:
+        logger.warning(
+            "POS file has %d row(s) with negative revenue (refunds/returns); "
+            "keeping them so daily totals net correctly",
+            neg_rev_count,
         )
     df["avg_order_value"] = df["avg_order_value"].clip(lower=0)
 

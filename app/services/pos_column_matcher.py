@@ -185,30 +185,53 @@ SYNONYMS: dict[str, list[str]] = {
         "per_unit_price", "Per Unit Price", "item_price", "Item Price",
     ],
     "customer_identifier": [
-        "customer_identifier", "customerIdentifier", "customer_id",
-        "customerId", "Customer ID", "customer", "Customer",
-        "customer_name", "customerName", "Customer Name", "phone",
-        "Phone", "mobile", "Mobile", "mobile_no", "mobileNo",
-        "Mobile No", "phone_no", "phoneNo", "Phone No", "contact",
-        "Contact", "contact_no", "contactNo", "Contact No", "cust_phone",
-        "custPhone", "cust_id", "custId", "guest_phone",
+        "customer_identifier", "customerIdentifier",
+        # Phone / mobile (preferred — unique per customer; names collide).
         "customer_mobile", "customerMobile", "Customer Mobile",
         "cust_mobile", "custMobile", "Cust Mobile",
         "customer_phone", "customerPhone", "Customer Phone",
-        "cust_no", "custNo", "Cust No", "customer_no", "customerNo",
-        "Customer No", "customer_number", "customerNumber", "Customer Number",
+        "cust_phone", "custPhone",
+        "phone", "Phone", "mobile", "Mobile",
+        "mobile_no", "mobileNo", "Mobile No",
+        "phone_no", "phoneNo", "Phone No",
         "mobile_number", "mobileNumber", "Mobile Number",
         "phone_number", "phoneNumber", "Phone Number",
-        "cust_name", "custName", "Cust Name", "guest_name", "Guest Name",
-        "guest_mobile", "Guest Mobile", "guest_phone_no", "Guest Phone",
+        "contact", "Contact", "contact_no", "contactNo", "Contact No",
+        "guest_phone", "guest_mobile", "Guest Mobile",
+        "guest_phone_no", "Guest Phone",
         "tel", "Tel", "telephone", "Telephone",
         "whatsapp", "WhatsApp", "Whatsapp", "whatsapp_no", "WhatsApp No",
         "whatsapp_number", "WhatsApp Number",
-        "member_id", "memberId", "Member ID", "membership_id", "Membership ID",
-        "loyalty_id", "loyaltyId", "Loyalty ID", "loyalty_number",
-        "Loyalty Number", "card_no", "Card No",
-        "buyer_id", "buyerId", "Buyer ID", "buyer_name", "Buyer Name",
         "buyer_phone", "Buyer Phone",
+        # Stable IDs.
+        "customer_id", "customerId", "Customer ID",
+        "cust_id", "custId",
+        "customer_no", "customerNo", "Customer No",
+        "cust_no", "custNo", "Cust No",
+        "customer_number", "customerNumber", "Customer Number",
+        "member_id", "memberId", "Member ID",
+        "membership_id", "Membership ID",
+        "loyalty_id", "loyaltyId", "Loyalty ID",
+        "loyalty_number", "Loyalty Number", "card_no", "Card No",
+        "buyer_id", "buyerId", "Buyer ID",
+        # Names (last-resort — collide on common Indian first names).
+        "customer", "Customer",
+        "customer_name", "customerName", "Customer Name",
+        "cust_name", "custName", "Cust Name",
+        "guest_name", "Guest Name",
+        "buyer_name", "Buyer Name",
+    ],
+    # Recognised so we can filter cancelled/voided rows pre-aggregation,
+    # then dropped (not in CANONICAL_FIELDS, so not persisted to pos_records).
+    "order_status": [
+        "order_status", "orderStatus", "Order Status",
+        "bill_status", "billStatus", "Bill Status",
+        "invoice_status", "invoiceStatus", "Invoice Status",
+        "transaction_status", "Transaction Status",
+        "txn_status", "txnStatus", "Txn Status",
+        "kot_status", "KOT Status",
+        "settlement_status", "Settlement Status",
+        "status", "Status",
     ],
     "payment_method": [
         "payment_method", "paymentMethod", "Payment Method",
@@ -294,6 +317,14 @@ SYNONYMS: dict[str, list[str]] = {
         "returning_guests", "Returning Guests", "repeat_guests",
         "Repeat Guests", "regulars", "Regulars",
     ],
+}
+
+# Order-status values that mean "this transaction did not happen".
+# Refunds are NOT here — they're real events, just with negative line totals,
+# and we want to keep them so daily revenue nets out correctly.
+CANCELLED_STATUS_VALUES = {
+    "cancelled", "canceled", "void", "voided", "rejected", "abandoned",
+    "failed", "declined",
 }
 
 # Normalised customer placeholder strings → treated as null.
@@ -772,6 +803,19 @@ def canonicalise(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
     # Apply rename — only rename mapped columns, leave the rest untouched.
     renamed = df.rename(columns=mapping).copy()
+
+    # Drop cancelled/voided rows BEFORE we strip the status column.
+    # Refunds (negative line totals) are NOT dropped — they net out at sum-time.
+    if "order_status" in renamed.columns:
+        status_norm = (
+            renamed["order_status"].astype(str).str.strip().str.lower()
+        )
+        cancelled_mask = status_norm.isin(CANCELLED_STATUS_VALUES)
+        n_cancelled = int(cancelled_mask.sum())
+        diag["cancelled_filtered"] = n_cancelled
+        if n_cancelled:
+            logger.info("Dropped %d cancelled/voided POS rows", n_cancelled)
+            renamed = renamed[~cancelled_mask].copy()
 
     # Drop columns we don't care about so downstream agg is clean.
     keep = [c for c in renamed.columns if c in CANONICAL_FIELDS]
