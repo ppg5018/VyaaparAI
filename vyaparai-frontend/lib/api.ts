@@ -65,7 +65,7 @@ export interface HealthReport {
   total_reviews: number;
   reviews: Review[];
   competitors: Competitor[];
-  insights: [string, string, string];
+  insights: string[];
   action: string;
   competitor_analysis: CompetitorAnalysis;
   pos_signals: PosSignals;
@@ -80,7 +80,7 @@ export interface HistoryEntry {
   competitor_score: number;
   pos_score: number;
   google_rating: number;
-  insights: [string, string, string];
+  insights: string[];
   action: string;
   created_at: string;
 }

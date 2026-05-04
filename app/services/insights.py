@@ -42,6 +42,7 @@ def build_prompt(
     dominant_complaint: str | None = None,
     reviews_per_month: float | None = None,
     photo_count: int = 0,
+    previously_shown: list[str] | None = None,
 ) -> str:
     """Assemble the full Claude prompt from business data, scores, and POS signals."""
     name = business_data.get("name", "Unknown Business")
@@ -123,6 +124,20 @@ def build_prompt(
         else f"{photo_count} photos on Google Maps"
     )
 
+    # Exclusion block — only included when previously_shown has content.
+    # We pass things the user has already seen / actioned / saved so Claude
+    # doesn't restate them with slightly different wording.
+    if previously_shown:
+        excl_lines = "\n".join(f"- {s[:200]}" for s in previously_shown[:30])
+        exclusion_block = (
+            "\n\nPREVIOUSLY-SHOWN SUGGESTIONS — the user has already seen these. "
+            "Generate fundamentally NEW angles. Do not restate, paraphrase, or "
+            "give the same recommendation about the same subject:\n"
+            f"{excl_lines}\n"
+        )
+    else:
+        exclusion_block = ""
+
     return f"""You are a business advisor for Indian MSME owners. Be specific, not generic.
 Always name specific products and competitors. Never say "some products" or
 "nearby competitors". Actions must cost under ₹2,000 and take under 3 hours.
@@ -131,7 +146,8 @@ Business: {name}
 Rating: {rating}/5 ({total_reviews} reviews)
 Health score: {final_score}/100 (band: {band})
 
-Last {len(reviews)} reviews (newest first):
+Last {len(reviews)} reviews (newest first) — read ACROSS reviews and look for
+patterns that appear in 3+ reviews (e.g. "service slow" mentioned 4 times):
 {review_snippets}
 
 Top similarity-matched competitors within 800m (semantically similar businesses):
@@ -147,21 +163,27 @@ Repeat customer rate: {repeat_str}
 Review analysis (Claude-rated sentiment, not raw stars):
 {complaint_line}
 Review velocity: {velocity_str}
-Google Maps photos: {photo_str}
+Google Maps photos: {photo_str}{exclusion_block}
 
 Generate exactly {count} insights and 1 action.
-Each insight must:
-- Name a specific product, category, review theme, or competitor from the data above
-- Reference actual numbers from the data above (rating, review count, revenue %, AOV)
-- Cover a DIFFERENT signal from the other insights — do not repeat the same point
-- Mix sources: at least one from reviews, at least one from POS data (when available),
-  and at least one from competitors (when available)
+
+Each insight belongs to exactly ONE of these three themes:
+  [SALES]   revenue trend, AOV, top/slow products, pricing, promotions, channel mix
+  [CX]      review themes, service/quality complaints, dominant complaints, food
+  [PERF]    operations, photos/visibility, competitor gap, repeat-rate, review velocity
+
+Across the {count} insights you MUST collectively cover all three themes when
+{count} >= 3. No two insights may share the same primary subject (same product,
+same review theme, same competitor, same POS signal). Each insight must name a
+specific product / theme / competitor and cite actual numbers from the data above.
+
+Do NOT prefix insights with the bracket tag — keep them clean prose.
 
 The action must:
 - Cost under ₹2,000
 - Take under 3 hours of owner's time
 - Be doable this week
-- Be the single highest-impact thing to do
+- Be the single highest-impact thing to do, distinct from the insights
 
 Return ONLY valid JSON, no markdown, no preamble. The "insights" array must contain
 exactly {count} strings:
@@ -209,8 +231,13 @@ def generate_insights(
     dominant_complaint: str | None = None,
     reviews_per_month: float | None = None,
     photo_count: int = 0,
+    previously_shown: list[str] | None = None,
 ) -> dict:
     """Call Claude API, parse JSON insights, retry once on parse failure.
+
+    `previously_shown` is a list of suggestion strings the user has already
+    seen (sourced from `actions_log`). Passed to Claude so it can avoid
+    restating or paraphrasing them in the new batch.
 
     Returns: {"insights": [str, str, str], "action": str}
     Raises:
@@ -219,7 +246,11 @@ def generate_insights(
         RuntimeError: if both attempts fail to produce valid JSON.
     """
     count = insight_count(business_data, pos_signals)
-    prompt = build_prompt(business_data, scores, pos_signals, count, dominant_complaint, reviews_per_month, photo_count)
+    prompt = build_prompt(
+        business_data, scores, pos_signals, count,
+        dominant_complaint, reviews_per_month, photo_count,
+        previously_shown=previously_shown,
+    )
     response_text = None
 
     try:

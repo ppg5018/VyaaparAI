@@ -171,9 +171,17 @@ function Toast({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ActionBanner({ action, ctx }: { action: string; ctx: ActionsCtx }) {
-  const existing = ctx.actions.find((a) => a.kind === 'weekly_action_done' && a.target_text === action);
-  const isDone   = !!existing;
+// One row inside SuggestionsBanner. Mark Done logs to the actions table; the
+// outer SuggestionsBanner re-filters on every render so the row disappears
+// once a matching action_log entry exists — both immediately (state update)
+// and after refresh (server-fetched ctx.actions).
+function SuggestionRow({
+  text, kind, ctx,
+}: {
+  text: string;
+  kind: ActionEntry['kind'];
+  ctx: ActionsCtx;
+}) {
   const [busy, setBusy] = useState(false);
   const { isMobile } = useViewport();
 
@@ -181,8 +189,7 @@ function ActionBanner({ action, ctx }: { action: string; ctx: ActionsCtx }) {
     if (busy) return;
     setBusy(true);
     try {
-      if (isDone && existing) await ctx.onDelete(existing.id);
-      else                    await ctx.onLog('weekly_action_done', action);
+      await ctx.onLog(kind, text);
     } finally {
       setBusy(false);
     }
@@ -190,50 +197,105 @@ function ActionBanner({ action, ctx }: { action: string; ctx: ActionsCtx }) {
 
   return (
     <div style={{
-      background: isDone
-        ? 'linear-gradient(135deg, rgba(16,217,160,0.10), rgba(16,217,160,0.05))'
-        : 'linear-gradient(135deg, rgba(245,166,35,0.1), rgba(139,111,255,0.1))',
-      border: `1px solid ${isDone ? 'rgba(16,217,160,0.3)' : 'var(--border2)'}`,
+      background: 'linear-gradient(135deg, rgba(245,166,35,0.1), rgba(139,111,255,0.1))',
+      border: '1px solid var(--border2)',
       borderRadius: 'var(--r2)',
       padding: isMobile ? '14px 16px' : '18px 20px',
       display: 'flex',
       flexDirection: isMobile ? 'column' : 'row',
       alignItems: isMobile ? 'stretch' : 'flex-start',
-      gap: isMobile ? 12 : 14, marginTop: 16,
+      gap: isMobile ? 12 : 14,
       transition: 'background 250ms, border-color 250ms',
     }}>
-      <div style={{ width: 36, height: 36, background: isDone ? 'var(--emerald)' : 'var(--gold)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 250ms' }}>
-        {isDone ? (
-          <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="black" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="3,8 7,12 13,4" />
-          </svg>
-        ) : (
-          <svg width={14} height={18} viewBox="0 0 10 16" fill="black"><path d="M7 0L0 9h4.5L3 16 10 7H5.5L7 0z" /></svg>
-        )}
+      <div style={{ width: 36, height: 36, background: 'var(--gold)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <svg width={14} height={18} viewBox="0 0 10 16" fill="black"><path d="M7 0L0 9h4.5L3 16 10 7H5.5L7 0z" /></svg>
       </div>
       <div style={{ flex: 1 }}>
-        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: isDone ? 'var(--emerald)' : 'var(--text3)', display: 'block', marginBottom: 5 }}>
-          {isDone ? 'Action Completed' : "This Week's Action"}
+        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text3)', display: 'block', marginBottom: 5 }}>
+          {kind === 'weekly_action_done' ? "This Week's Action" : 'Suggested Action'}
         </span>
-        <p style={{ fontSize: 13, color: 'var(--text2)', margin: 0, lineHeight: 1.65, textDecoration: isDone ? 'line-through' : 'none', opacity: isDone ? 0.7 : 1 }}>{action}</p>
+        <p style={{ fontSize: 13, color: 'var(--text2)', margin: 0, lineHeight: 1.65 }}>{text}</p>
       </div>
       <button
         onClick={onClick}
         disabled={busy}
         style={{
           flexShrink: 0, padding: '8px 14px',
-          background: isDone ? 'transparent' : 'var(--gold)',
-          border: isDone ? '1px solid var(--border2)' : 'none',
+          background: 'var(--gold)',
+          border: 'none',
           borderRadius: 8,
-          color: isDone ? 'var(--text2)' : '#000',
+          color: '#000',
           fontFamily: 'var(--font-space-grotesk), sans-serif',
           fontWeight: 600, fontSize: 12, cursor: busy ? 'wait' : 'pointer',
           whiteSpace: 'nowrap', opacity: busy ? 0.6 : 1,
           transition: 'background 200ms, opacity 150ms',
         }}
       >
-        {busy ? '…' : isDone ? 'Undo' : 'Mark Done'}
+        {busy ? '…' : 'Mark Done'}
       </button>
+    </div>
+  );
+}
+
+function SuggestionsBanner({
+  action, insights, ctx,
+}: {
+  action: string;
+  insights: readonly string[];
+  ctx: ActionsCtx;
+}) {
+  // Combine the headline weekly action + all insights into a single suggestion list.
+  // Hidden once an action_log entry exists with matching target_text — both
+  // 'weekly_action_done' and 'insight_actioned' kinds count as "done".
+  const all: { text: string; kind: ActionEntry['kind'] }[] = [
+    ...(action ? [{ text: action, kind: 'weekly_action_done' as const }] : []),
+    ...insights.map((text) => ({ text, kind: 'insight_actioned' as const })),
+  ];
+
+  const seen = new Set<string>();
+  // Order = priority: report.action first (Claude's headline), then insights in
+  // the order Claude returned them. Cap to 2 so the user sees the top items —
+  // when one is marked done it falls out of the actions filter and the next
+  // pending suggestion slides up automatically on the next render.
+  const pending = all.filter((item) => {
+    if (seen.has(item.text)) return false;
+    seen.add(item.text);
+    return !ctx.actions.some(
+      (a) =>
+        a.target_text === item.text &&
+        (a.kind === 'weekly_action_done' || a.kind === 'insight_actioned'),
+    );
+  });
+  const visible = pending.slice(0, 2);
+
+  if (visible.length === 0) {
+    return (
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(16,217,160,0.10), rgba(16,217,160,0.05))',
+        border: '1px solid rgba(16,217,160,0.3)',
+        borderRadius: 'var(--r2)',
+        padding: '18px 20px',
+        marginTop: 16,
+        display: 'flex', alignItems: 'center', gap: 14,
+      }}>
+        <div style={{ width: 36, height: 36, background: 'var(--emerald)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="black" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3,8 7,12 13,4" />
+          </svg>
+        </div>
+        <div>
+          <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--emerald)', display: 'block', marginBottom: 5 }}>All Caught Up</span>
+          <p style={{ fontSize: 13, color: 'var(--text2)', margin: 0, lineHeight: 1.65 }}>You've marked every suggestion done. Undo any from the Notes tab if you change your mind.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
+      {visible.map((item) => (
+        <SuggestionRow key={`${item.kind}:${item.text}`} text={item.text} kind={item.kind} ctx={ctx} />
+      ))}
     </div>
   );
 }
@@ -541,7 +603,7 @@ function OverviewTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx })
         </div>
       </div>
 
-      <ActionBanner action={report.action} ctx={ctx} />
+      <SuggestionsBanner action={report.action} insights={report.insights} ctx={ctx} />
     </div>
   );
 }
@@ -738,7 +800,7 @@ function InsightsTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx })
         </div>
       </div>
 
-      <ActionBanner action={report.action} ctx={ctx} />
+      <SuggestionsBanner action={report.action} insights={report.insights} ctx={ctx} />
     </div>
   );
 }

@@ -187,7 +187,28 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
     # 6. Final score + band
     score_result = health_score.calculate_health_score(r_score, c_score, p_score)
 
-    # 7. Generate insights via Claude Sonnet (dominant complaint injected into prompt)
+    # 7. Generate insights via Claude Sonnet (dominant complaint injected into prompt).
+    # Pull previously-shown suggestions from actions_log so Claude can avoid
+    # restating them — covers suggestions the user has actioned, marked done,
+    # or saved. Failure is non-fatal: empty list means no exclusion block.
+    previously_shown: list[str] = []
+    try:
+        prev_res = (
+            supabase.table("actions_log")
+            .select("target_text")
+            .eq("business_id", business_id)
+            .in_("kind", ["weekly_action_done", "insight_actioned", "insight_saved"])
+            .order("created_at", desc=True)
+            .limit(30)
+            .execute()
+        )
+        previously_shown = [r["target_text"] for r in (prev_res.data or []) if r.get("target_text")]
+    except Exception as exc:
+        logger.warning(
+            "[generate-report] business_id=%s failed to load previously-shown suggestions (non-fatal): %s",
+            business_id, exc,
+        )
+
     try:
         insights_result = insights.generate_insights(
             business_data=google_data,
@@ -196,6 +217,7 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
             dominant_complaint=dominant_complaint,
             reviews_per_month=reviews_per_month,
             photo_count=photo_count,
+            previously_shown=previously_shown,
         )
     except RuntimeError as exc:
         logger.error(
