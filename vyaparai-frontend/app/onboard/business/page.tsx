@@ -259,7 +259,14 @@ function BusinessPageInner() {
         try { await uploadPOS(result.business_id, pendingFile); } catch { /* non-fatal */ }
       }
 
-      router.push(cameFromConnections ? '/profile/connections' : '/dashboard');
+      if (cameFromConnections) {
+        router.push('/profile/connections');
+      } else {
+        router.push(
+          `/onboard/preferences?business_id=${encodeURIComponent(result.business_id)}` +
+          `&category=${encodeURIComponent(category)}`,
+        );
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Setup failed. Please try again.';
       setError(msg);
