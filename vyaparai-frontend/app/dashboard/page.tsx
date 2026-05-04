@@ -11,7 +11,7 @@ import {
 import { useBusinessId } from '@/lib/business-context';
 import { useAuth } from '@/lib/auth-context';
 import { useViewport } from '@/lib/use-viewport';
-import { Bars, Gauge, Logo, Skeleton, Stat, ThemeToggle } from '@/components/ui';
+import { Bars, Gauge, Logo, PrefsForm, Skeleton, Stat, ThemeToggle } from '@/components/ui';
 
 // ─── POS display helpers ───────────────────────────────────────────────────────
 const CAT_COLORS = ['var(--gold)', 'var(--violet)', 'var(--emerald)', 'var(--red)', 'var(--yellow)', '#7dd3fc', '#f472b6', '#94a3b8'];
@@ -809,14 +809,19 @@ function InsightsTab({ report, ctx }: { report: HealthReport; ctx: ActionsCtx })
 function CompetitorsTab({
   report,
   businessId,
+  userId,
   onAdded,
   onRemoved,
+  onPrefsSaved,
 }: {
   report: HealthReport;
   businessId: string;
+  userId?: string;
   onAdded: (c: HealthReport['competitors'][number]) => void;
   onRemoved: (placeId: string) => void;
+  onPrefsSaved?: () => void;
 }) {
+  const [showPrefs, setShowPrefs] = useState(false);
   const myRating    = report.google_rating;
   const myReviews   = report.total_reviews;
   const competitors = report.competitors;
@@ -930,6 +935,66 @@ function CompetitorsTab({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Settings entry */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          type="button"
+          onClick={() => setShowPrefs(true)}
+          style={{
+            padding: '8px 14px', borderRadius: 8, fontSize: 13,
+            border: '1.5px solid var(--border)', background: 'transparent',
+            color: 'var(--text)', cursor: 'pointer',
+          }}
+        >
+          Competitor settings
+        </button>
+      </div>
+
+      {showPrefs && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+            display: 'flex', justifyContent: 'flex-end', zIndex: 1000,
+          }}
+          onClick={() => setShowPrefs(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(560px, 100%)', height: '100%',
+              background: 'var(--bg)', padding: 24, overflowY: 'auto',
+              borderLeft: '1px solid var(--border)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ margin: 0 }}>Competitor settings</h2>
+              <button
+                type="button"
+                onClick={() => setShowPrefs(false)}
+                style={{
+                  padding: '6px 10px', borderRadius: 8,
+                  border: '1.5px solid var(--border)', background: 'transparent',
+                  color: 'var(--text)', cursor: 'pointer', fontSize: 13,
+                }}
+              >
+                Close
+              </button>
+            </div>
+            <PrefsForm
+              businessId={businessId}
+              category={report.category || 'restaurant'}
+              userId={userId}
+              onSaved={() => {
+                setShowPrefs(false);
+                onPrefsSaved?.();
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Hero strip — 4 stat tiles */}
       {competitors.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12 }}>
@@ -1815,8 +1880,10 @@ export default function DashboardPage() {
               <CompetitorsTab
                 report={report}
                 businessId={businessId!}
+                userId={user?.id}
                 onAdded={(c) => setReport((r) => r ? { ...r, competitors: [c, ...r.competitors.filter((x) => x.place_id !== c.place_id)] } : r)}
                 onRemoved={(pid) => setReport((r) => r ? { ...r, competitors: r.competitors.filter((x) => x.place_id !== pid) } : r)}
+                onPrefsSaved={handleRefresh}
               />
             )}
             {tab === 'pos'         && <PosTab          report={report} />}
