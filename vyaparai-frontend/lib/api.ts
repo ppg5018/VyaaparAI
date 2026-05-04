@@ -157,6 +157,74 @@ export async function uploadPOS(
   return res.json();
 }
 
+// ─── POS Dashboard ─────────────────────────────────────────────────────────────
+export interface DashboardMetrics {
+  total_revenue: number;
+  total_orders: number;
+  total_units: number;
+  avg_order_value: number;
+  avg_daily_revenue: number;
+  best_selling_item: string | null;
+  best_selling_revenue: number;
+  date_range: { from: string | null; to: string | null; days: number };
+}
+
+export interface DailyRevenuePoint {
+  date: string;
+  revenue: number;
+  orders: number;
+}
+
+export interface WeeklyRevenuePoint {
+  week_start: string;
+  label: string;
+  revenue: number;
+  orders: number;
+  growth_pct: number | null;
+}
+
+export interface PeakDayEntry {
+  day: string;
+  total_revenue: number;
+  avg_revenue: number;
+}
+
+export interface DashboardCategory {
+  name: string;
+  revenue: number;
+  pct: number;
+}
+
+export interface PosDashboard {
+  metrics: DashboardMetrics;
+  daily_revenue: DailyRevenuePoint[];
+  weekly_revenue: WeeklyRevenuePoint[];
+  weekly_growth: {
+    best_week: WeeklyRevenuePoint | null;
+    worst_week: WeeklyRevenuePoint | null;
+  };
+  peak_day_of_week: PeakDayEntry[];
+  revenue_by_category: DashboardCategory[];
+  categories: string[];
+}
+
+export async function getPosDashboard(
+  businessId: string,
+  fromDate?: string,
+  toDate?: string,
+  category?: string,
+): Promise<PosDashboard> {
+  const params = new URLSearchParams();
+  if (fromDate) params.set('from_date', fromDate);
+  if (toDate)   params.set('to_date', toDate);
+  if (category) params.set('category', category);
+  const qs = params.toString();
+  const url = `${BASE}/pos-dashboard/${businessId}${qs ? `?${qs}` : ''}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 // ─── Actions log ───────────────────────────────────────────────────────────────
 export type ActionKind = 'weekly_action_done' | 'insight_actioned' | 'insight_saved';
 

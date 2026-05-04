@@ -4,9 +4,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   generateReport, getHistory, getActions, logAction, deleteAction,
-  searchPlaces, addCompetitor, removeCompetitor,
+  searchPlaces, addCompetitor, removeCompetitor, getPosDashboard,
   type ActionEntry, type Band, type HealthReport, type HistoryEntry,
-  type PlaceSuggestion,
+  type PlaceSuggestion, type PosDashboard,
 } from '@/lib/api';
 import { useBusinessId } from '@/lib/business-context';
 import { useAuth } from '@/lib/auth-context';
@@ -1209,70 +1209,475 @@ function CompetitorsTab({
   );
 }
 
-// ─── TAB: POS ──────────────────────────────────────────────────────────────────
-function PosTab({ report }: { report: HealthReport }) {
-  const { isMobile } = useViewport();
-  const cols = isMobile ? '1fr' : '1fr 1fr';
-  const cats = report.revenue_by_category;
-  const weekly = report.weekly_revenue;
-  const latestWeek = weekly[weekly.length - 1];
-  const formatINR = (n: number) =>
-    n >= 100000 ? `₹${(n / 100000).toFixed(2)}L` : n >= 1000 ? `₹${(n / 1000).toFixed(0)}k` : `₹${Math.round(n)}`;
+// ─── POS DASHBOARD HELPERS ─────────────────────────────────────────────────────
 
-  if (cats.length === 0 && weekly.every((w) => w.rev === 0)) {
+const fmtINR = (n: number): string => {
+  const sign = n < 0 ? '-' : '';
+  const x = Math.abs(n);
+  if (x >= 10000000) return `${sign}₹${(x / 10000000).toFixed(2)}Cr`;
+  if (x >= 100000)   return `${sign}₹${(x / 100000).toFixed(2)}L`;
+  if (x >= 1000)     return `${sign}₹${(x / 1000).toFixed(1)}k`;
+  return `${sign}₹${Math.round(x)}`;
+};
+
+const fmtINRShort = (n: number): string => {
+  const x = Math.abs(n);
+  if (x >= 100000) return `${n < 0 ? '-' : ''}${(x / 100000).toFixed(1)}L`;
+  if (x >= 1000)   return `${n < 0 ? '-' : ''}${Math.round(x / 1000)}k`;
+  return Math.round(n).toString();
+};
+
+const fmtINRFull = (n: number): string =>
+  `₹${Math.round(n).toLocaleString('en-IN')}`;
+
+// Tiny KPI tile used at the top of the dashboard.
+function KpiCard({
+  label, value, sub, color = 'var(--text)', subColor,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  color?: string;
+  subColor?: string;
+}) {
+  return (
+    <div style={{ ...CARD, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text3)' }}>{label}</span>
+      <span style={{ fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 22, color, lineHeight: 1.15, wordBreak: 'break-word' }}>{value}</span>
+      {sub && <span style={{ fontSize: 11, color: subColor ?? 'var(--text3)', lineHeight: 1.3 }}>{sub}</span>}
+    </div>
+  );
+}
+
+// Simple growth-percentage badge (+5.2%, -3.4%, neutral).
+function GrowthBadge({ pct }: { pct: number | null }) {
+  if (pct == null) {
+    return <span style={{ fontSize: 10, color: 'var(--text3)' }}>—</span>;
+  }
+  const positive = pct > 0;
+  const neutral  = pct === 0;
+  const color = neutral ? 'var(--text3)' : positive ? 'var(--emerald)' : 'var(--red)';
+  const dim   = neutral ? 'rgba(255,255,255,0.06)' : positive ? 'rgba(16,217,160,0.12)' : 'rgba(255,95,95,0.12)';
+  const arrow = neutral ? '→' : positive ? '↑' : '↓';
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color, background: dim, border: `1px solid ${color}`, borderRadius: 999, padding: '1px 7px', fontFamily: 'var(--font-space-mono), monospace' }}>
+      {arrow} {Math.abs(pct).toFixed(1)}%
+    </span>
+  );
+}
+
+// Daily revenue area chart — SVG, smooth-ish line through the points + filled area.
+function DailyRevenueChart({ data, height = 160 }: { data: { date: string; revenue: number; orders: number }[]; height?: number }) {
+  const [hover, setHover] = useState<number | null>(null);
+  if (data.length === 0) return null;
+  const W = 800;
+  const H = height;
+  const pad = { top: 12, right: 12, bottom: 22, left: 8 };
+  const xs = data.map((_, i) => pad.left + (i * (W - pad.left - pad.right)) / Math.max(1, data.length - 1));
+  const max = Math.max(1, ...data.map(d => d.revenue));
+  const ys = data.map(d => pad.top + (1 - d.revenue / max) * (H - pad.top - pad.bottom));
+  const lineD = data.map((_, i) => `${i === 0 ? 'M' : 'L'} ${xs[i].toFixed(1)} ${ys[i].toFixed(1)}`).join(' ');
+  const areaD = `${lineD} L ${xs[xs.length - 1].toFixed(1)} ${(H - pad.bottom).toFixed(1)} L ${xs[0].toFixed(1)} ${(H - pad.bottom).toFixed(1)} Z`;
+
+  // Show ~6 x-axis ticks evenly spaced.
+  const tickCount = Math.min(6, data.length);
+  const tickIdx = Array.from({ length: tickCount }, (_, i) =>
+    Math.round((i * (data.length - 1)) / Math.max(1, tickCount - 1))
+  );
+
+  return (
+    <div style={{ position: 'relative', width: '100%' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height, display: 'block' }}>
+        <defs>
+          <linearGradient id="dailyArea" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"  stopColor="var(--violet)" stopOpacity={0.45} />
+            <stop offset="100%" stopColor="var(--violet)" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <path d={areaD} fill="url(#dailyArea)" />
+        <path d={lineD} stroke="var(--violet)" strokeWidth={1.5} fill="none" />
+        {data.map((_, i) => (
+          <circle
+            key={i}
+            cx={xs[i]} cy={ys[i]} r={hover === i ? 3.5 : 2}
+            fill={hover === i ? 'var(--violet)' : 'transparent'}
+            stroke={hover === i ? 'var(--violet)' : 'transparent'}
+            strokeWidth={1.5}
+          />
+        ))}
+        {/* Wide invisible hover columns */}
+        {data.map((_, i) => (
+          <rect
+            key={`h${i}`}
+            x={xs[i] - (W / data.length) / 2}
+            y={0}
+            width={W / data.length}
+            height={H}
+            fill="transparent"
+            onMouseEnter={() => setHover(i)}
+            onMouseLeave={() => setHover(null)}
+          />
+        ))}
+        {tickIdx.map(i => (
+          <text key={`t${i}`} x={xs[i]} y={H - 4} fontSize={9} fill="var(--text3)" textAnchor="middle" fontFamily="var(--font-space-mono), monospace">
+            {data[i].date.slice(5)}
+          </text>
+        ))}
+      </svg>
+      {hover !== null && (
+        <div style={{ position: 'absolute', top: 4, left: `${(xs[hover] / W) * 100}%`, transform: 'translateX(-50%)', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 6, padding: '4px 10px', fontSize: 11, color: 'var(--text)', whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 10 }}>
+          <div style={{ fontFamily: 'var(--font-space-mono), monospace', fontSize: 10, color: 'var(--text3)' }}>{data[hover].date}</div>
+          <div style={{ fontFamily: 'var(--font-space-mono), monospace', fontWeight: 700 }}>{fmtINRFull(data[hover].revenue)}</div>
+          <div style={{ fontSize: 10, color: 'var(--text3)' }}>{data[hover].orders} orders</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Weekly revenue bar chart with growth badges below each bar.
+function WeeklyRevenueChart({ data, height = 140 }: { data: import('@/lib/api').WeeklyRevenuePoint[]; height?: number }) {
+  const [hover, setHover] = useState<number | null>(null);
+  if (data.length === 0) return null;
+  const max = Math.max(1, ...data.map(d => d.revenue));
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height }}>
+        {data.map((d, i) => {
+          const h = Math.max(2, (d.revenue / max) * (height - 4));
+          const isHover = hover === i;
+          return (
+            <div
+              key={d.week_start}
+              style={{ flex: 1, height, position: 'relative', cursor: 'default' }}
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover(null)}
+            >
+              {isHover && (
+                <div style={{ position: 'absolute', bottom: h + 6, left: '50%', transform: 'translateX(-50%)', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 5, padding: '3px 9px', fontSize: 10, fontFamily: 'var(--font-space-mono), monospace', color: 'var(--text)', whiteSpace: 'nowrap', zIndex: 10 }}>
+                  {fmtINRFull(d.revenue)} · {d.orders} orders
+                </div>
+              )}
+              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: h, background: d.growth_pct != null && d.growth_pct < 0 ? 'var(--red)' : 'var(--violet)', opacity: isHover ? 1 : 0.7, borderRadius: '4px 4px 0 0', transition: 'height 500ms cubic-bezier(0.4,0,0.2,1), opacity 150ms' }} />
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 5 }}>
+        {data.map(d => (
+          <span key={`l${d.week_start}`} style={{ flex: 1, textAlign: 'center', fontSize: 9, fontFamily: 'var(--font-space-mono), monospace', color: 'var(--text3)' }}>
+            {d.label}
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
+        {data.map((d, i) => (
+          <div key={`g${d.week_start}`} style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+            {i > 0 && <GrowthBadge pct={d.growth_pct} />}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Day-of-week revenue (Mon–Sun avg).
+function DowChart({ data, height = 130 }: { data: import('@/lib/api').PeakDayEntry[]; height?: number }) {
+  if (data.length === 0) return null;
+  const max = Math.max(1, ...data.map(d => d.avg_revenue));
+  const peakDay = data.reduce((a, b) => (a.avg_revenue >= b.avg_revenue ? a : b));
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height }}>
+        {data.map(d => {
+          const h = Math.max(2, (d.avg_revenue / max) * (height - 4));
+          const isPeak = d.day === peakDay.day;
+          return (
+            <div key={d.day} style={{ flex: 1, height, position: 'relative' }}>
+              <div style={{ position: 'absolute', top: -16, left: 0, right: 0, textAlign: 'center', fontSize: 9, fontFamily: 'var(--font-space-mono), monospace', color: isPeak ? 'var(--gold)' : 'var(--text3)', fontWeight: isPeak ? 700 : 400 }}>
+                {fmtINRShort(d.avg_revenue)}
+              </div>
+              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: h, background: isPeak ? 'var(--gold)' : 'var(--emerald)', opacity: isPeak ? 1 : 0.55, borderRadius: '4px 4px 0 0' }} />
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+        {data.map(d => (
+          <span key={`d${d.day}`} style={{ flex: 1, textAlign: 'center', fontSize: 10, fontWeight: 600, color: d.day === peakDay.day ? 'var(--gold)' : 'var(--text2)' }}>
+            {d.day}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// SVG donut for revenue by category.
+function CategoryDonut({ data, size = 160 }: { data: { name: string; revenue: number; pct: number }[]; size?: number }) {
+  if (data.length === 0) return null;
+  const total = data.reduce((s, d) => s + d.revenue, 0) || 1;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size / 2 - 6;
+  const inner = r * 0.62;
+  const arcs: { d: string; color: string; name: string; pct: number }[] = [];
+  let a = -Math.PI / 2;
+  data.forEach((d, i) => {
+    const slice = (d.revenue / total) * 2 * Math.PI;
+    const aEnd = a + slice;
+    const large = slice > Math.PI ? 1 : 0;
+    const x1 = cx + r * Math.cos(a);
+    const y1 = cy + r * Math.sin(a);
+    const x2 = cx + r * Math.cos(aEnd);
+    const y2 = cy + r * Math.sin(aEnd);
+    const x3 = cx + inner * Math.cos(aEnd);
+    const y3 = cy + inner * Math.sin(aEnd);
+    const x4 = cx + inner * Math.cos(a);
+    const y4 = cy + inner * Math.sin(a);
+    arcs.push({
+      d: `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${inner} ${inner} 0 ${large} 0 ${x4} ${y4} Z`,
+      color: CAT_COLORS[i % CAT_COLORS.length],
+      name: d.name,
+      pct: d.pct,
+    });
+    a = aEnd;
+  });
+  const totalRev = data.reduce((s, d) => s + d.revenue, 0);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
+        {arcs.map((arc, i) => (
+          <path key={i} d={arc.d} fill={arc.color} opacity={0.9} />
+        ))}
+        <text x={cx} y={cy - 4} textAnchor="middle" fontSize={10} fill="var(--text3)" letterSpacing="0.1em">TOTAL</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" fontSize={14} fontWeight={700} fill="var(--text)" fontFamily="var(--font-space-grotesk), sans-serif">
+          {fmtINR(totalRev)}
+        </text>
+      </svg>
+      <div style={{ flex: 1, minWidth: 140, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {arcs.map((arc, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: arc.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{arc.name}</span>
+            <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--font-space-mono), monospace' }}>{arc.pct}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── TAB: POS ──────────────────────────────────────────────────────────────────
+function PosTab({ businessId }: { businessId: string }) {
+  const { isMobile } = useViewport();
+  const [data, setData]       = useState<PosDashboard | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState<string | null>(null);
+  // User-controlled filters (empty = unfiltered).
+  const [from, setFrom]         = useState<string>('');
+  const [to, setTo]             = useState<string>('');
+  const [category, setCategory] = useState<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getPosDashboard(businessId, from || undefined, to || undefined, category || undefined)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [businessId, from, to, category]);
+
+  const empty =
+    !loading &&
+    data != null &&
+    data.metrics.total_orders === 0 &&
+    data.daily_revenue.length === 0;
+
+  if (loading && !data) {
     return (
-      <div style={{ ...CARD, textAlign: 'center', padding: '40px 24px' }}>
-        <p style={{ fontSize: 14, color: 'var(--text2)', margin: '0 0 6px' }}>No POS data yet.</p>
-        <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>
-          Upload a CSV via the onboarding flow or POST <code style={{ color: 'var(--text2)' }}>/upload-pos/{report.business_id}</code> to populate this tab.
-        </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <Skeleton height={48} />
+        <Skeleton height={120} />
+        <Skeleton height={220} />
       </div>
     );
   }
 
+  if (error) {
+    return (
+      <div style={{ ...CARD, borderColor: 'var(--red)', background: 'var(--red-dim)' }}>
+        <p style={{ fontSize: 13, color: 'var(--red)', margin: 0 }}>Dashboard unavailable: {error}</p>
+      </div>
+    );
+  }
+
+  if (!data || empty) {
+    return (
+      <div style={{ ...CARD, textAlign: 'center', padding: '40px 24px' }}>
+        <p style={{ fontSize: 14, color: 'var(--text2)', margin: '0 0 6px' }}>
+          {category || from || to ? 'No POS data matches these filters.' : 'No POS data yet.'}
+        </p>
+        <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>
+          {category || from || to
+            ? 'Try removing a filter or widening the date range.'
+            : `Upload a CSV via the onboarding flow to populate this tab.`}
+        </p>
+        {(category || from || to) && (
+          <button
+            onClick={() => { setFrom(''); setTo(''); setCategory(''); }}
+            style={{ ...GHOST_BTN, marginTop: 16 }}
+          >
+            Reset filters
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const m = data.metrics;
+  const filterRowCols = isMobile ? '1fr' : '1fr 1fr 1fr auto';
+  const cardGridCols  = isMobile ? '1fr 1fr' : 'repeat(6, 1fr)';
+  const splitCols     = isMobile ? '1fr' : '1fr 1fr';
+
+  // Day name from ISO week_start (week starting Sunday in our backend grouping).
+  const formatWeekRange = (w: import('@/lib/api').WeeklyRevenuePoint | null): string => {
+    if (!w) return '—';
+    return `${w.label} · ${w.week_start}`;
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 16, alignItems: 'start' }}>
+      {/* ── Filter bar ────────────────────────────────────────────────────── */}
+      <div style={{ ...CARD, padding: '12px 16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: filterRowCols, gap: 10, alignItems: 'end' }}>
+          <div>
+            <span style={{ ...SEC, margin: '0 0 4px' }}>From</span>
+            <input
+              type="date"
+              value={from}
+              max={to || undefined}
+              onChange={(e) => setFrom(e.target.value)}
+              style={{ width: '100%', padding: '8px 10px', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 6, color: 'var(--text)', fontSize: 12, fontFamily: 'inherit' }}
+            />
+          </div>
+          <div>
+            <span style={{ ...SEC, margin: '0 0 4px' }}>To</span>
+            <input
+              type="date"
+              value={to}
+              min={from || undefined}
+              onChange={(e) => setTo(e.target.value)}
+              style={{ width: '100%', padding: '8px 10px', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 6, color: 'var(--text)', fontSize: 12, fontFamily: 'inherit' }}
+            />
+          </div>
+          <div>
+            <span style={{ ...SEC, margin: '0 0 4px' }}>Category</span>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              style={{ width: '100%', padding: '8px 10px', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 6, color: 'var(--text)', fontSize: 12, fontFamily: 'inherit' }}
+            >
+              <option value="">All categories</option>
+              {data.categories.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          {(from || to || category) && (
+            <button onClick={() => { setFrom(''); setTo(''); setCategory(''); }} style={GHOST_BTN}>
+              Reset
+            </button>
+          )}
+        </div>
+        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text3)' }}>
+          Showing <strong style={{ color: 'var(--text2)' }}>{m.date_range.from}</strong> → <strong style={{ color: 'var(--text2)' }}>{m.date_range.to}</strong> ({m.date_range.days} days){category ? ` · ${category}` : ''}
+        </div>
+      </div>
+
+      {/* ── KPI cards ─────────────────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: cardGridCols, gap: 12 }}>
+        <KpiCard label="Total Revenue" value={fmtINR(m.total_revenue)} sub={fmtINRFull(m.total_revenue)} color="var(--emerald)" />
+        <KpiCard label="Total Orders"  value={m.total_orders.toLocaleString('en-IN')} sub={`${m.total_units.toLocaleString('en-IN')} items sold`} color="var(--violet)" />
+        <KpiCard label="Avg Order Value" value={fmtINR(m.avg_order_value)} sub="per order" color="var(--gold)" />
+        <KpiCard label="Avg Daily Revenue" value={fmtINR(m.avg_daily_revenue)} sub={`across ${m.date_range.days} days`} color="var(--text)" />
+        <KpiCard label="Best-Selling Item" value={m.best_selling_item ?? '—'} sub={m.best_selling_revenue > 0 ? fmtINR(m.best_selling_revenue) : undefined} color="var(--text)" />
+        <KpiCard label="Total Expenses" value="—" sub="not tracked" color="var(--text3)" />
+      </div>
+
+      {/* ── Daily revenue trend (full width) ──────────────────────────────── */}
+      <div style={CARD}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10, gap: 12, flexWrap: 'wrap' }}>
+          <span style={SEC}>Daily Revenue Trend</span>
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+            {data.daily_revenue.length} days · hover to inspect
+          </span>
+        </div>
+        <DailyRevenueChart data={data.daily_revenue} height={isMobile ? 140 : 180} />
+      </div>
+
+      {/* ── Weekly revenue + Peak day side by side ───────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: splitCols, gap: 16, alignItems: 'start' }}>
         <div style={CARD}>
-          <span style={SEC}>Revenue by Category</span>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {cats.map((cat, i) => {
-              const color = CAT_COLORS[i % CAT_COLORS.length];
-              return (
-                <div key={cat.name}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
-                      <span style={{ fontSize: 13, color: 'var(--text2)' }}>{cat.name}</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <span style={{ fontFamily: 'var(--font-space-mono), monospace', fontSize: 12, color: 'var(--text3)' }}>{formatINR(cat.rev)}</span>
-                      <span style={{ fontFamily: 'var(--font-space-mono), monospace', fontSize: 12, fontWeight: 700, color: 'var(--text)', width: 40, textAlign: 'right' }}>{cat.pct}%</span>
-                    </div>
-                  </div>
-                  <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 999, overflow: 'hidden' }}>
-                    <div style={{ width: `${cat.pct}%`, height: '100%', background: color, borderRadius: 999 }} />
-                  </div>
-                </div>
-              );
-            })}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10, gap: 12 }}>
+            <span style={SEC}>Weekly Revenue & Growth</span>
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+              week-over-week
+            </span>
+          </div>
+          <WeeklyRevenueChart data={data.weekly_revenue} height={130} />
+        </div>
+        <div style={CARD}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 18, gap: 12 }}>
+            <span style={SEC}>Peak Sales Day</span>
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+              avg per weekday
+            </span>
+          </div>
+          <DowChart data={data.peak_day_of_week} height={130} />
+        </div>
+      </div>
+
+      {/* ── Best/Worst week + Most popular category ──────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: splitCols, gap: 16, alignItems: 'start' }}>
+        <div style={CARD}>
+          <span style={SEC}>Best & Worst Performing Week</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'rgba(16,217,160,0.08)', border: '1px solid rgba(16,217,160,0.25)', borderRadius: 'var(--r)' }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--emerald)', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 13 }}>↑</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--emerald)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Best Week</span>
+                <p style={{ fontSize: 13, color: 'var(--text)', margin: 0, fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700 }}>
+                  {data.weekly_growth.best_week ? fmtINRFull(data.weekly_growth.best_week.revenue) : '—'}
+                </p>
+                <span style={{ fontSize: 11, color: 'var(--text3)' }}>{formatWeekRange(data.weekly_growth.best_week)}</span>
+              </div>
+              {data.weekly_growth.best_week && <GrowthBadge pct={data.weekly_growth.best_week.growth_pct} />}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'rgba(255,95,95,0.06)', border: '1px solid rgba(255,95,95,0.22)', borderRadius: 'var(--r)' }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--red)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700, fontSize: 13 }}>↓</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--red)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Worst Week</span>
+                <p style={{ fontSize: 13, color: 'var(--text)', margin: 0, fontFamily: 'var(--font-space-grotesk), sans-serif', fontWeight: 700 }}>
+                  {data.weekly_growth.worst_week ? fmtINRFull(data.weekly_growth.worst_week.revenue) : '—'}
+                </p>
+                <span style={{ fontSize: 11, color: 'var(--text3)' }}>{formatWeekRange(data.weekly_growth.worst_week)}</span>
+              </div>
+              {data.weekly_growth.worst_week && <GrowthBadge pct={data.weekly_growth.worst_week.growth_pct} />}
+            </div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={CARD}>
-            <span style={SEC}>8-Week Revenue Trend</span>
-            <Bars data={weekly} height={100} />
+        <div style={CARD}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14, gap: 12 }}>
+            <span style={SEC}>Revenue by Category</span>
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+              {data.revenue_by_category[0] ? `Top: ${data.revenue_by_category[0].name}` : ''}
+            </span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <Stat label="POS Score" value={String(report.sub_scores.pos_score)} sub="out of 100" color="var(--emerald)" glow />
-            <Stat
-              label="Latest Week"
-              value={latestWeek ? formatINR(latestWeek.rev) : '—'}
-              sub={latestWeek ? latestWeek.week : 'no data'}
-              color="var(--violet)"
-            />
-          </div>
+          <CategoryDonut data={data.revenue_by_category} size={isMobile ? 130 : 160} />
         </div>
       </div>
     </div>
@@ -1754,7 +2159,7 @@ export default function DashboardPage() {
                 onRemoved={(pid) => setReport((r) => r ? { ...r, competitors: r.competitors.filter((x) => x.place_id !== pid) } : r)}
               />
             )}
-            {tab === 'pos'         && <PosTab          report={report} />}
+            {tab === 'pos'         && <PosTab          businessId={report.business_id} />}
             {tab === 'history'     && <HistoryTab scores={histScores} error={histError} />}
             {tab === 'notes'       && <NotesTab        ctx={actionsCtx} />}
           </>
