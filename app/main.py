@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.logging_config import setup_logging
-from app.api import actions, competitors, onboard, pos, report, history
+from app.api import actions, competitors, onboard, pos, preferences, report, history
 
 setup_logging()
 
@@ -32,6 +32,7 @@ def create_app() -> FastAPI:
     application.include_router(history.router, tags=["history"])
     application.include_router(actions.router, tags=["actions"])
     application.include_router(competitors.router, tags=["competitors"])
+    application.include_router(preferences.router, tags=["preferences"])
     return application
 
 
