@@ -112,8 +112,15 @@ export async function onboardBusiness(data: {
     body: JSON.stringify(data),
   });
   if (res.status === 409) {
-    const body = await res.json();
-    return { business_id: body.detail.business_id, name: data.name, place_id: data.place_id ?? '', google_verified_name: data.name };
+    const body = await res.json().catch(() => null);
+    const detail = body?.detail ?? {};
+    if (detail.code === 'owned_by_other') {
+      throw new Error(
+        'This business is already linked to another Refloat account. ' +
+        'Sign in with that account, or contact support to transfer ownership.',
+      );
+    }
+    throw new Error(detail.error || 'Business already onboarded.');
   }
   if (!res.ok) throw new Error(await res.text());
   return res.json();

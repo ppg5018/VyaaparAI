@@ -81,6 +81,8 @@ def onboard_business(req: OnboardRequest) -> OnboardResponse:
             existing_row = existing.data[0]
             existing_id = existing_row["id"]
             existing_uid = existing_row.get("user_id")
+
+            # Case A: orphan row, caller has a user_id → adopt
             if req.user_id and not existing_uid:
                 supabase.table("businesses").update(
                     {"user_id": req.user_id}
@@ -95,13 +97,32 @@ def onboard_business(req: OnboardRequest) -> OnboardResponse:
                     place_id=resolved_place_id,
                     google_verified_name=google_verified_name,
                 )
+
+            # Case B: caller already owns this row → idempotent return
+            if req.user_id and existing_uid == req.user_id:
+                logger.info(
+                    "[onboard] idempotent re-onboard business_id=%s by owner",
+                    existing_id,
+                )
+                return OnboardResponse(
+                    business_id=existing_id,
+                    name=req.name,
+                    place_id=resolved_place_id,
+                    google_verified_name=google_verified_name,
+                )
+
+            # Case C: row owned by someone else → refuse
             logger.warning(
-                "[onboard] place_id=%s already exists as business_id=%s (owned=%s)",
-                resolved_place_id, existing_id, bool(existing_uid),
+                "[onboard] place_id=%s already exists as business_id=%s (owned by another user)",
+                resolved_place_id, existing_id,
             )
             raise HTTPException(
                 status_code=409,
-                detail={"error": "Business already onboarded", "business_id": existing_id},
+                detail={
+                    "error": "Business already linked to another account",
+                    "business_id": existing_id,
+                    "code": "owned_by_other",
+                },
             )
 
     # 4. Insert
