@@ -1,5 +1,5 @@
-from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from typing import Literal, Optional
+from pydantic import BaseModel, Field, field_validator, model_validator
 from app.config import VALID_CATEGORIES
 
 
@@ -155,3 +155,42 @@ class HistoryResponse(BaseModel):
     business_id: str
     count: int
     scores: list[HistoryScore]
+
+
+class CompetitorPrefs(BaseModel):
+    """User-controlled overrides for competitor auto-discovery."""
+
+    radius_m: Literal[500, 800, 1000, 1500, 2000] = 800
+    min_reviews: int = Field(0, ge=0, le=10000)
+    max_reviews: Optional[int] = Field(None, ge=1, le=100000)
+    subcategories: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_range(self) -> "CompetitorPrefs":
+        if self.max_reviews is not None and self.max_reviews < self.min_reviews:
+            raise ValueError("max_reviews must be >= min_reviews")
+        return self
+
+
+class PreferencesRequest(BaseModel):
+    """Body for PUT /preferences/{business_id}."""
+
+    mode: Literal["auto", "custom"]
+    prefs: Optional[CompetitorPrefs] = None
+
+    @model_validator(mode="after")
+    def _check_prefs_required(self) -> "PreferencesRequest":
+        if self.mode == "custom" and self.prefs is None:
+            raise ValueError("prefs required when mode='custom'")
+        return self
+
+
+class CompetitorPreviewResponse(BaseModel):
+    """Response body for GET /competitors/preview/{business_id}."""
+
+    radius_m: int
+    total_candidates: int
+    review_buckets: dict[str, int]
+    subcategory_counts: dict[str, int]
+    top_examples: list[dict]
+    own_subcategory: Optional[str] = None
