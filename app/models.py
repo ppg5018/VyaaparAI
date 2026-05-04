@@ -84,6 +84,8 @@ class PosSignals(BaseModel):
     """POS signals used by the dashboard. All fields are optional — null when no POS data."""
 
     revenue_trend_pct: float | None = None
+    revenue_trend_acute_pct: float | None = None    # 7d vs prior 28d (daily-averaged)
+    revenue_trend_chronic_pct: float | None = None  # 90d vs prior 90d
     slow_categories: list[str] = []
     top_product: str | None = None
     aov_direction: str | None = None

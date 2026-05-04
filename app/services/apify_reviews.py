@@ -78,7 +78,7 @@ def _load_from_cache(place_id: str, limit: int = 200) -> list[dict]:
     try:
         res = (
             supabase.table("external_reviews")
-            .select("rating, text, author_name, posted_at, owner_reply, review_id")
+            .select("rating, text, author_name, posted_at, owner_reply, review_id, raw")
             .eq("place_id", place_id)
             .order("posted_at", desc=True)
             .limit(limit)
@@ -91,6 +91,17 @@ def _load_from_cache(place_id: str, limit: int = 200) -> list[dict]:
     rows = res.data or []
     for r in rows:
         r["relative_time"] = _relative_time_from_iso(r.get("posted_at"))
+        # Surface reviewer-credibility signals from the raw JSONB blob without
+        # requiring a schema migration. Preserve None when absent so weighting
+        # falls back to neutral; preserve a truthful 0 to flag fake accounts.
+        raw = r.get("raw") or {}
+        count = raw.get("reviewerNumberOfReviews")
+        if count is None:
+            count = raw.get("reviewer_review_count")
+        r["reviewer_review_count"] = count
+        r["reviewer_is_local_guide"] = bool(
+            raw.get("isLocalGuide") or raw.get("reviewer_is_local_guide")
+        )
     return rows
 
 
@@ -181,6 +192,12 @@ def _normalize_review(item: dict) -> dict:
         "posted_at":     posted_at,
         "owner_reply":   item.get("responseFromOwnerText"),
         "relative_time": _relative_time_from_iso(posted_at),
+        # Reviewer-credibility signals — used by review_credibility.weight()
+        # to down-weight likely fake/coerced single-review accounts and
+        # up-weight Local Guides + power reviewers. Keep None when the
+        # actor didn't surface a count so the weighting falls back to neutral.
+        "reviewer_review_count":    item.get("reviewerNumberOfReviews"),
+        "reviewer_is_local_guide":  bool(item.get("isLocalGuide")),
     }
 
 

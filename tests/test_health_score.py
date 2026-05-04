@@ -208,6 +208,108 @@ s_d2 = review_score(4.5, 800, [{"rating": 4.5}] * 5, all_reviews_with_dates=rece
 check(s_d1 == s_d2, "8. Determinism: same inputs + same now -> same score", f"call1={s_d1} call2={s_d2}")
 
 
+# ── PART E: Multi-Window POS Analysis (#8) ────────────────────────────────────
+
+print("\n=== Part E: Multi-Window POS Analysis ===")
+
+# 1. All three windows healthy → high score
+s = pos_score({
+    "revenue_trend_pct": 12.0,
+    "revenue_trend_acute_pct": 10.0,
+    "revenue_trend_chronic_pct": 14.0,
+    "slow_categories": [],
+    "top_product": "X",
+    "aov_direction": "rising",
+    "repeat_rate_trend": 10.0,
+})
+check(s >= 95, "1. All windows healthy: score >= 95", s)
+
+# 2. Acute alone bad, current+chronic healthy → noise suppressed, stays high
+noisy_acute = pos_score({
+    "revenue_trend_pct": 8.0,           # current healthy
+    "revenue_trend_acute_pct": -25.0,   # acute crashes (one bad week)
+    "revenue_trend_chronic_pct": 10.0,  # chronic healthy
+    "slow_categories": [],
+    "top_product": "X",
+    "aov_direction": "stable",
+})
+no_acute = pos_score({
+    "revenue_trend_pct": 8.0,
+    "revenue_trend_chronic_pct": 10.0,
+    "slow_categories": [],
+    "top_product": "X",
+    "aov_direction": "stable",
+})
+check(
+    abs(noisy_acute - no_acute) <= 1,
+    "2. Acute-only weakness suppressed when current+chronic both healthy",
+    f"with_bad_acute={noisy_acute} without_acute={no_acute}",
+)
+
+# 3. Chronic bad → structural decline penalises even if acute looks OK
+structural = pos_score({
+    "revenue_trend_pct": 5.0,           # current OK
+    "revenue_trend_acute_pct": 8.0,     # acute fine
+    "revenue_trend_chronic_pct": -25.0, # chronic broken
+    "slow_categories": [],
+    "top_product": "X",
+    "aov_direction": "stable",
+})
+all_ok = pos_score({
+    "revenue_trend_pct": 5.0,
+    "revenue_trend_acute_pct": 8.0,
+    "revenue_trend_chronic_pct": 5.0,
+    "slow_categories": [],
+    "top_product": "X",
+    "aov_direction": "stable",
+})
+check(structural < all_ok - 5, "3. Bad chronic window penalises score >= 5 pts", f"structural={structural} all_ok={all_ok}")
+
+# 4. Acute bad AND current bad → no suppression, take the worst
+acute_and_current_bad = pos_score({
+    "revenue_trend_pct": -15.0,          # current bad
+    "revenue_trend_acute_pct": -25.0,    # acute also bad
+    "revenue_trend_chronic_pct": 10.0,   # chronic still healthy
+    "slow_categories": [],
+    "top_product": "X",
+    "aov_direction": "stable",
+})
+check(acute_and_current_bad < all_ok, "4. Acute+current both weak: not suppressed", f"acute_and_current_bad={acute_and_current_bad}")
+
+# 5. Backward compat — current only (no acute/chronic) matches pre-change behaviour
+single_window = pos_score({
+    "revenue_trend_pct": 12.0,
+    "slow_categories": [],
+    "top_product": "X",
+    "aov_direction": "rising",
+    "repeat_rate_trend": 10.0,
+})
+check(single_window >= 95, "5. Single-window backward compat: high signal still high", single_window)
+
+# 6. Suppression requires BOTH current and chronic healthy — chronic missing means no carve-out
+acute_bad_no_chronic = pos_score({
+    "revenue_trend_pct": 8.0,
+    "revenue_trend_acute_pct": -25.0,
+    # chronic missing — short upload
+    "slow_categories": [],
+    "top_product": "X",
+    "aov_direction": "stable",
+})
+acute_bad_with_chronic = pos_score({
+    "revenue_trend_pct": 8.0,
+    "revenue_trend_acute_pct": -25.0,
+    "revenue_trend_chronic_pct": 10.0,
+    "slow_categories": [],
+    "top_product": "X",
+    "aov_direction": "stable",
+})
+check(
+    acute_bad_no_chronic <= acute_bad_with_chronic,
+    "6. Suppression off when chronic absent (acute weakness counts)",
+    f"no_chronic={acute_bad_no_chronic} with_chronic={acute_bad_with_chronic}",
+)
+
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 
 print(f"\n{'='*50}")

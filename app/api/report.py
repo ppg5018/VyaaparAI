@@ -299,6 +299,8 @@ def generate_report(business_id: str, force: bool = False) -> ReportResponse:
         ),
         pos_signals=PosSignals(
             revenue_trend_pct=signals.get("revenue_trend_pct"),
+            revenue_trend_acute_pct=signals.get("revenue_trend_acute_pct"),
+            revenue_trend_chronic_pct=signals.get("revenue_trend_chronic_pct"),
             slow_categories=signals.get("slow_categories", []),
             top_product=signals.get("top_product"),
             aov_direction=signals.get("aov_direction"),

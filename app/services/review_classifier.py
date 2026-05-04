@@ -64,14 +64,22 @@ def classify_reviews(reviews: list[dict]) -> list[dict]:
     if not reviews:
         return []
 
+    def _passthrough(r: dict, score: float, topic: str = "other") -> dict:
+        return {
+            "sentiment_score": score,
+            "topic": topic,
+            "reviewer_review_count": r.get("reviewer_review_count"),
+            "reviewer_is_local_guide": bool(r.get("reviewer_is_local_guide")),
+        }
+
     batch = [r for r in reviews[:MAX_REVIEWS_TO_CLASSIFY] if r.get("text", "").strip()]
     if not batch:
-        return [{"sentiment_score": float(r.get("rating") or 3), "topic": "other"} for r in reviews[:MAX_REVIEWS_TO_CLASSIFY]]
+        return [
+            _passthrough(r, float(r.get("rating") or 3))
+            for r in reviews[:MAX_REVIEWS_TO_CLASSIFY]
+        ]
 
-    fallback = [
-        {"sentiment_score": float(r.get("rating") or 3), "topic": "other"}
-        for r in batch
-    ]
+    fallback = [_passthrough(r, float(r.get("rating") or 3)) for r in batch]
 
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -99,9 +107,16 @@ def classify_reviews(reviews: list[dict]) -> list[dict]:
             score = float(item["sentiment_score"])
             score = max(1.0, min(5.0, score))
             topic = item["topic"] if item.get("topic") in TOPICS else "other"
-            result.append({"sentiment_score": score, "topic": topic})
+            entry = {"sentiment_score": score, "topic": topic}
         except (KeyError, TypeError, ValueError):
-            result.append(fallback[i])
+            entry = fallback[i]
+        # Carry the source review's credibility fields so downstream
+        # weighting (health_score.review_score) doesn't have to re-align
+        # the classifier output back to the input list.
+        src = batch[i]
+        entry["reviewer_review_count"] = src.get("reviewer_review_count")
+        entry["reviewer_is_local_guide"] = bool(src.get("reviewer_is_local_guide"))
+        result.append(entry)
 
     logger.info("[review_classifier] classified %d reviews via Haiku", len(result))
     return result

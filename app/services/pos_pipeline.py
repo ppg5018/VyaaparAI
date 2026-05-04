@@ -31,12 +31,47 @@ def _null_signals() -> dict:
     """Return an all-None signals dict used when no POS data exists."""
     return {
         "revenue_trend_pct": None,
+        "revenue_trend_acute_pct": None,
+        "revenue_trend_chronic_pct": None,
         "slow_categories": [],
         "top_product": None,
         "aov_direction": None,
         "repeat_rate_pct": None,
         "repeat_rate_trend": None,
     }
+
+
+def _window_trend(
+    df: pd.DataFrame,
+    today,
+    recent_days: int,
+    prior_days: int,
+) -> float | None:
+    """Daily-averaged revenue trend % comparing the last `recent_days`
+    against the `prior_days` immediately before that window.
+
+    Daily averaging means asymmetric windows (e.g. 7-vs-28) are comparable.
+    Returns None when either window is empty or the prior daily-average is 0.
+    """
+    # Strict `>` on the lower bound so a recent_days=30 window covers exactly
+    # 30 days (today, today-1, ..., today-29) rather than 31. The prior window
+    # mirrors this: strictly newer than its lower bound, up to and including
+    # the recent boundary day.
+    recent_start = pd.Timestamp(today - timedelta(days=recent_days))
+    prior_start = pd.Timestamp(today - timedelta(days=recent_days + prior_days))
+
+    recent = df[df["date"] > recent_start]
+    prior = df[(df["date"] > prior_start) & (df["date"] <= recent_start)]
+
+    if recent.empty or prior.empty:
+        return None
+
+    recent_avg = recent["revenue"].sum() / recent_days
+    prior_avg = prior["revenue"].sum() / prior_days
+
+    if prior_avg <= 0:
+        return None
+    return round(((recent_avg - prior_avg) / prior_avg) * 100, 1)
 
 
 def ingest_pos_csv(filepath: str, business_id: str) -> int:
@@ -222,7 +257,10 @@ def pos_signals(business_id: str, days: int = 30, category: str = "") -> dict:
     logger.info("Computing POS signals for business_id=%s, days=%d", business_id, days)
 
     today = datetime.now().date()
-    cutoff = today - timedelta(days=days * 2)  # 60 days of data
+    # Widen fetch so the chronic 90-vs-90 window has its full prior period
+    # even when the caller passes a shorter `days` (e.g. 30).
+    fetch_days = max(days * 2, 180)
+    cutoff = today - timedelta(days=fetch_days)
 
     try:
         result = (
@@ -247,7 +285,7 @@ def pos_signals(business_id: str, days: int = 30, category: str = "") -> dict:
 
     logger.info(
         "Found %d records in last %d days for business_id=%s",
-        len(df), days * 2, business_id,
+        len(df), fetch_days, business_id,
     )
 
     recent_cutoff = pd.Timestamp(today - timedelta(days=days))
@@ -277,6 +315,21 @@ def pos_signals(business_id: str, days: int = 30, category: str = "") -> dict:
                 )
     except Exception as exc:
         logger.warning("revenue_trend_pct computation failed: %s", exc)
+
+    # Multi-window analysis (#8). Acute catches sudden week-on-week shifts;
+    # chronic surfaces structural decline that a 30-day window can miss.
+    # Daily-averaged so the 7-vs-28 comparison is apples-to-apples.
+    acute_trend: float | None = None
+    chronic_trend: float | None = None
+    try:
+        acute_trend = _window_trend(df, today, recent_days=7, prior_days=28)
+        chronic_trend = _window_trend(df, today, recent_days=90, prior_days=90)
+        logger.debug(
+            "multi-window trends: acute(7v28)=%s%% current(%dv%d)=%s%% chronic(90v90)=%s%%",
+            acute_trend, days, days, trend, chronic_trend,
+        )
+    except Exception as exc:
+        logger.warning("multi-window trend computation failed: %s", exc)
 
     # Slow categories — compare last 14 days vs prior period (days 30–60 ago)
     slow_cats: list[str] = []
@@ -393,6 +446,8 @@ def pos_signals(business_id: str, days: int = 30, category: str = "") -> dict:
 
     signals = {
         "revenue_trend_pct": trend,
+        "revenue_trend_acute_pct": acute_trend,
+        "revenue_trend_chronic_pct": chronic_trend,
         "slow_categories": slow_cats,
         "top_product": top_product,
         "aov_direction": aov_direction,
@@ -400,8 +455,8 @@ def pos_signals(business_id: str, days: int = 30, category: str = "") -> dict:
         "repeat_rate_trend": repeat_rate_trend,
     }
     logger.info(
-        "Signals for business_id=%s: trend=%s%% slow=%s top=%s aov=%s repeat=%.1f%%(trend=%s%%)",
-        business_id, trend, slow_cats, top_product, aov_direction,
+        "Signals for business_id=%s: trend=%s%% (acute=%s%% chronic=%s%%) slow=%s top=%s aov=%s repeat=%.1f%%(trend=%s%%)",
+        business_id, trend, acute_trend, chronic_trend, slow_cats, top_product, aov_direction,
         repeat_rate_pct or 0, repeat_rate_trend,
     )
     return signals

@@ -1210,12 +1210,25 @@ function CompetitorsTab({
 }
 
 // ─── TAB: POS ──────────────────────────────────────────────────────────────────
+type PosWindow = 7 | 15 | 30;
+const POS_WINDOWS: PosWindow[] = [7, 15, 30];
+
 function PosTab({ report }: { report: HealthReport }) {
   const { isMobile } = useViewport();
   const cols = isMobile ? '1fr' : '1fr 1fr';
   const cats = report.revenue_by_category;
   const weekly = report.weekly_revenue;
-  const latestWeek = weekly[weekly.length - 1];
+  const [days, setDays] = useState<PosWindow>(30);
+
+  // Slice weekly bars to roughly match the selected window. The report payload
+  // only exposes weekly buckets (no daily data on the client), so we round up:
+  // 7d → last 1 week, 15d → last 3, 30d → last 5. Falls back to all weeks if
+  // the chart has fewer entries than the slice asks for.
+  const weeksFor = (d: PosWindow) => (d === 7 ? 1 : d === 15 ? 3 : 5);
+  const visibleWeekly = weekly.slice(-weeksFor(days));
+  const latestWeek = visibleWeekly[visibleWeekly.length - 1];
+  const windowRevenue = visibleWeekly.reduce((sum, w) => sum + w.rev, 0);
+
   const formatINR = (n: number) =>
     n >= 100000 ? `₹${(n / 100000).toFixed(2)}L` : n >= 1000 ? `₹${(n / 1000).toFixed(0)}k` : `₹${Math.round(n)}`;
 
@@ -1232,6 +1245,58 @@ function PosTab({ report }: { report: HealthReport }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
+        <span style={{ fontSize: 12, color: 'var(--text3)', letterSpacing: 0.4, textTransform: 'uppercase' }}>
+          POS Window
+        </span>
+        <div
+          role="tablist"
+          aria-label="POS data window"
+          style={{
+            display: 'inline-flex',
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid var(--border2)',
+            borderRadius: 999,
+            padding: 3,
+            gap: 2,
+          }}
+        >
+          {POS_WINDOWS.map((d) => {
+            const active = days === d;
+            return (
+              <button
+                key={d}
+                role="tab"
+                aria-selected={active}
+                onClick={() => setDays(d)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 999,
+                  border: 'none',
+                  background: active ? 'rgba(255,255,255,0.10)' : 'transparent',
+                  color: active ? 'var(--text)' : 'var(--text3)',
+                  fontWeight: active ? 600 : 500,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  transition: 'background 150ms, color 150ms',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {d}d
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 16, alignItems: 'start' }}>
         <div style={CARD}>
           <span style={SEC}>Revenue by Category</span>
@@ -1261,15 +1326,15 @@ function PosTab({ report }: { report: HealthReport }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={CARD}>
-            <span style={SEC}>8-Week Revenue Trend</span>
-            <Bars data={weekly} height={100} />
+            <span style={SEC}>{`Last ${days}d Revenue Trend`}</span>
+            <Bars data={visibleWeekly} height={100} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <Stat label="POS Score" value={String(report.sub_scores.pos_score)} sub="out of 100" color="var(--emerald)" glow />
             <Stat
-              label="Latest Week"
-              value={latestWeek ? formatINR(latestWeek.rev) : '—'}
-              sub={latestWeek ? latestWeek.week : 'no data'}
+              label={`Last ${days}d Revenue`}
+              value={windowRevenue > 0 ? formatINR(windowRevenue) : (latestWeek ? formatINR(latestWeek.rev) : '—')}
+              sub={latestWeek ? `latest: ${latestWeek.week}` : 'no data'}
               color="var(--violet)"
             />
           </div>

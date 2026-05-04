@@ -16,24 +16,35 @@ from app.config import (
     CATEGORY_POS_THRESHOLDS,
     DEFAULT_POS_THRESHOLDS,
 )
+from app.services.review_credibility import credibility_weight
 
 logger = logging.getLogger(__name__)
 
 _DAYS_PER_MONTH = 30.44
 
 
-def compute_velocity(dated_reviews: list, now: datetime | None = None) -> float:
+def compute_velocity(
+    dated_reviews: list,
+    now: datetime | None = None,
+    weighted: bool = False,
+) -> float:
     """Return reviews per month over the last REVIEW_VELOCITY_LOOKBACK_MONTHS.
 
     dated_reviews: list of dicts with a ``published_at`` datetime field.
     Returns 0.0 if no dated reviews are provided.
+
+    When ``weighted`` is True, each review counts by its credibility weight
+    (Local Guides + power reviewers up-weighted, single-review accounts
+    down-weighted). Used internally by review_score for scoring; the caller
+    in report.py passes weighted=False so the user-facing reviews_per_month
+    figure stays a literal count.
     """
     if not dated_reviews:
         return 0.0
     if now is None:
         now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=REVIEW_VELOCITY_LOOKBACK_MONTHS * _DAYS_PER_MONTH)
-    count = 0
+    total = 0.0
     for r in dated_reviews:
         pub = r.get("published_at") if isinstance(r, dict) else None
         if not isinstance(pub, datetime):
@@ -41,8 +52,8 @@ def compute_velocity(dated_reviews: list, now: datetime | None = None) -> float:
         if pub.tzinfo is None:
             pub = pub.replace(tzinfo=timezone.utc)
         if pub >= cutoff:
-            count += 1
-    return count / REVIEW_VELOCITY_LOOKBACK_MONTHS
+            total += credibility_weight(r) if weighted else 1.0
+    return total / REVIEW_VELOCITY_LOOKBACK_MONTHS
 
 
 def _velocity_pts(velocity: float) -> float:
@@ -106,35 +117,53 @@ def review_score(
         if now is None:
             now = datetime.now(timezone.utc)
         # Velocity (reviews/month) is a stronger health signal than raw count.
-        # An active business getting 8+ reviews/month scores full 25 pts; one
-        # getting 1 review every other month scores ~3 pts.
-        velocity = compute_velocity(all_reviews_with_dates, now)
+        # Credibility-weighted internally so single-review fake accounts
+        # contribute less and Local Guides contribute more.
+        velocity = compute_velocity(all_reviews_with_dates, now, weighted=True)
         volume_pts = _velocity_pts(velocity)
         logger.debug(
-            "review_score: velocity=%.2f reviews/month → volume_pts=%.1f",
+            "review_score: weighted velocity=%.2f reviews/month → volume_pts=%.1f",
             velocity, volume_pts,
         )
     else:
         volume_pts = min(25, math.log10(max(total_reviews, 1)) * 10)
 
     if classified_reviews:
-        # Use Claude's sentiment scores — catches "polite 4★ but angry text"
-        scores = [c["sentiment_score"] for c in classified_reviews if c.get("sentiment_score")]
-        if scores:
-            sentiment_avg = sum(scores) / len(scores)
+        # Credibility-weighted sentiment average. Each classified entry
+        # carries its source review's reviewer profile fields (set by
+        # review_classifier.classify_reviews).
+        weighted_sum = 0.0
+        weight_total = 0.0
+        for c in classified_reviews:
+            score = c.get("sentiment_score")
+            if not score:
+                continue
+            w = credibility_weight(c)
+            weighted_sum += float(score) * w
+            weight_total += w
+        if weight_total > 0:
+            sentiment_avg = weighted_sum / weight_total
             trend_pts = (sentiment_avg / 5.0) * 20
             logger.debug(
-                "review_score: using Claude sentiment avg=%.2f over %d reviews (star avg would be %.2f)",
-                sentiment_avg, len(scores),
-                sum(r.get("rating", 3) for r in recent_reviews[:len(scores)]) / len(scores) if recent_reviews else 0,
+                "review_score: weighted Claude sentiment avg=%.2f over %d reviews (weight_total=%.1f)",
+                sentiment_avg, len(classified_reviews), weight_total,
             )
         else:
             trend_pts = 10
     elif recent_reviews:
-        # Fallback: star rating average over up to 50 reviews
+        # Fallback: credibility-weighted star average over up to 50 reviews
         sample = recent_reviews[:50]
-        recent_avg = sum(r["rating"] for r in sample) / len(sample)
-        trend_pts = (recent_avg / 5.0) * 20
+        weighted_sum = 0.0
+        weight_total = 0.0
+        for r in sample:
+            w = credibility_weight(r)
+            weighted_sum += float(r["rating"]) * w
+            weight_total += w
+        if weight_total > 0:
+            recent_avg = weighted_sum / weight_total
+            trend_pts = (recent_avg / 5.0) * 20
+        else:
+            trend_pts = 10
     else:
         trend_pts = 10
 
@@ -221,6 +250,52 @@ def _repeat_pts(repeat_rate_trend: float | None) -> float:
     return 2.0  # sharp decline
 
 
+def _multi_window_revenue_pts(signals: dict, thresholds: dict) -> float | None:
+    """Score revenue across 7-vs-28 (acute), 30-vs-30 (current), 90-vs-90 (chronic).
+
+    Returns the worst available 0–50 band score, with one carve-out:
+    if the worst window is acute and both the current and chronic windows
+    are at-or-above neutral (25 pts midpoint), drop the acute reading as
+    week-on-week noise and use min(current, chronic) instead. This stops
+    a single bad week — e.g. a closed weekend or post-festival lull —
+    from cratering the POS score.
+
+    Returns None when no window is computable (caller falls back to neutral).
+    """
+    acute = signals.get("revenue_trend_acute_pct")
+    current = signals.get("revenue_trend_pct")
+    chronic = signals.get("revenue_trend_chronic_pct")
+
+    pts: dict[str, float] = {}
+    if acute is not None:
+        pts["acute"] = _revenue_pts(acute, thresholds)
+    if current is not None:
+        pts["current"] = _revenue_pts(current, thresholds)
+    if chronic is not None:
+        pts["chronic"] = _revenue_pts(chronic, thresholds)
+
+    if not pts:
+        return None
+
+    worst_window = min(pts, key=pts.get)
+    worst = pts[worst_window]
+
+    # Acute-noise suppression — only when current AND chronic are both healthy
+    if worst_window == "acute" and "current" in pts and "chronic" in pts:
+        if pts["current"] >= 25.0 and pts["chronic"] >= 25.0:
+            suppressed = min(pts["current"], pts["chronic"])
+            logger.debug(
+                "pos_score: acute=%.1f suppressed (current=%.1f chronic=%.1f both ≥25) → %.1f",
+                worst, pts["current"], pts["chronic"], suppressed,
+            )
+            return suppressed
+
+    logger.debug(
+        "pos_score: window pts=%s worst=%s(%.1f)", pts, worst_window, worst,
+    )
+    return worst
+
+
 def pos_score(signals: dict, category: str = "") -> int:
     """Compute 0-100 POS health score from revenue trend, inventory, AOV, and repeat rate.
 
@@ -239,8 +314,12 @@ def pos_score(signals: dict, category: str = "") -> int:
 
     thresholds = CATEGORY_POS_THRESHOLDS.get(category, DEFAULT_POS_THRESHOLDS)
 
-    # Revenue trend (0–40, scaled from the 0–50 band function)
-    revenue_pts = max(0.0, min(40.0, _revenue_pts(trend, thresholds) * 0.8))
+    # Revenue trend (0–40, scaled from the 0–50 band function).
+    # Multi-window when acute/chronic are available — falls back cleanly
+    # to the single-window 30-vs-30 reading on short uploads.
+    multi = _multi_window_revenue_pts(signals, thresholds)
+    band_pts = multi if multi is not None else _revenue_pts(trend, thresholds)
+    revenue_pts = max(0.0, min(40.0, band_pts * 0.8))
 
     # Inventory health (0–25)
     slow_count = len(signals.get("slow_categories", []))
