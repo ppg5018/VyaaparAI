@@ -8,3 +8,4 @@ export { default as Bars }        from './Bars';
 export { default as Stat }        from './Stat';
 export { default as Steps }        from './Steps';
 export { default as Skeleton }     from './Skeleton';
+export { default as PrefsForm }    from './PrefsForm';

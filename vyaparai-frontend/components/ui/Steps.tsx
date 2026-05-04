@@ -4,7 +4,7 @@ interface StepsProps {
   active: number;
 }
 
-const STEP_LABELS = ['Account', 'POS', 'Business', 'Dashboard'];
+const STEP_LABELS = ['Account', 'POS', 'Business', 'Preferences', 'Dashboard'];
 
 function CheckIcon() {
   return (
