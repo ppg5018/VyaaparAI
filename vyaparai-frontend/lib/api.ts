@@ -219,3 +219,60 @@ export async function removeCompetitor(
   );
   if (!res.ok) throw new Error(await res.text());
 }
+
+// ─── Competitor preferences ───────────────────────────────────────────────────
+export interface CompetitorPrefs {
+  radius_m: 500 | 800 | 1000 | 1500 | 2000;
+  min_reviews: number;
+  max_reviews: number | null;
+  subcategories: string[];
+}
+
+export interface CompetitorPreviewExample {
+  name: string;
+  place_id?: string | null;
+  review_count: number;
+  rating: number;
+  sub_category: string | null;
+}
+
+export interface CompetitorPreview {
+  radius_m: number;
+  total_candidates: number;
+  review_buckets: Record<string, number>;
+  subcategory_counts: Record<string, number>;
+  top_examples: CompetitorPreviewExample[];
+  own_subcategory: string | null;
+}
+
+export async function getCompetitorPreview(
+  businessId: string,
+  radiusM: 500 | 800 | 1000 | 1500 | 2000,
+): Promise<CompetitorPreview> {
+  const res = await fetch(
+    `${BASE}/competitors/preview/${encodeURIComponent(businessId)}?radius_m=${radiusM}`,
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export interface PreferencesBody {
+  mode: 'auto' | 'custom';
+  prefs?: CompetitorPrefs;
+}
+
+export async function savePreferences(
+  businessId: string,
+  body: PreferencesBody,
+  userId?: string,
+): Promise<void> {
+  const res = await fetch(`${BASE}/preferences/${encodeURIComponent(businessId)}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(userId ? { 'X-User-Id': userId } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
