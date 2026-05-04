@@ -137,3 +137,64 @@ class TestComputePreviewIntegration:
             )
         assert payload == cached
         gp.assert_not_called()
+
+
+# ── HTTP-level tests for GET /competitors/preview ────────────────────────────
+
+
+class TestPreviewEndpoint:
+    def test_404_when_business_missing(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+        with patch("app.api.competitors.supabase") as sb:
+            sb.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
+            client = TestClient(app)
+            r = client.get("/competitors/preview/00000000-0000-0000-0000-000000000000")
+        assert r.status_code == 404
+
+    def test_422_on_unsupported_radius(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+        client = TestClient(app)
+        r = client.get("/competitors/preview/00000000-0000-0000-0000-000000000000?radius_m=750")
+        assert r.status_code == 422
+
+    def test_happy_path_returns_payload(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+        biz = {"id": "biz-1", "place_id": "ChIJme", "category": "restaurant",
+               "name": "X"}
+        details = {"lat": 12.97, "lng": 77.59}
+        with patch("app.api.competitors.supabase") as sb, \
+             patch("app.api.competitors.google_places.get_business_details",
+                   return_value=details), \
+             patch("app.api.competitors.competitor_preview.compute_preview") as cp:
+            sb.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[biz])
+            cp.return_value = {
+                "radius_m": 800, "total_candidates": 7,
+                "review_buckets": {"5+": 6, "20+": 4, "50+": 2, "100+": 1, "200+": 0},
+                "subcategory_counts": {"south_indian": 5, "north_indian": 2},
+                "top_examples": [],
+                "own_subcategory": "south_indian",
+            }
+            client = TestClient(app)
+            r = client.get("/competitors/preview/biz-1?radius_m=800")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["radius_m"] == 800
+        assert body["total_candidates"] == 7
+        assert body["own_subcategory"] == "south_indian"
+
+    def test_manual_placeholder_returns_empty_payload(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+        biz = {"id": "biz-1", "place_id": "manual_abc", "category": "retail",
+               "name": "Y"}
+        with patch("app.api.competitors.supabase") as sb:
+            sb.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[biz])
+            client = TestClient(app)
+            r = client.get("/competitors/preview/biz-1?radius_m=800")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["total_candidates"] == 0
+        assert body["own_subcategory"] is None
