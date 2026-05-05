@@ -516,3 +516,212 @@ def chart_data(business_id: str, weeks: int = 8) -> dict:
     ]
 
     return {"weekly_revenue": weekly, "revenue_by_category": categories}
+
+
+def _empty_dashboard() -> dict:
+    return {
+        "metrics": {
+            "total_revenue": 0.0,
+            "total_orders": 0,
+            "total_units": 0,
+            "avg_order_value": 0.0,
+            "avg_daily_revenue": 0.0,
+            "best_selling_item": None,
+            "best_selling_revenue": 0.0,
+            "date_range": {"from": None, "to": None, "days": 0},
+        },
+        "daily_revenue": [],
+        "weekly_revenue": [],
+        "weekly_growth": {"best_week": None, "worst_week": None},
+        "peak_day_of_week": [],
+        "revenue_by_category": [],
+        "categories": [],
+    }
+
+
+def dashboard_data(
+    business_id: str,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    category: str | None = None,
+) -> dict:
+    """Build the POS Insights Dashboard payload from `pos_records`.
+
+    All metrics, charts, and breakdowns are derived from a single query
+    so the frontend renders one consistent snapshot. Filters are applied
+    via Supabase WHERE clauses, not in pandas, to keep payloads small.
+
+    Date range defaults to the full extent of the business's data.
+    Returns an empty-but-shaped payload when no data exists; never raises.
+    """
+    try:
+        q = (
+            supabase.table("pos_records")
+            .select("date, product_category, product_name, units_sold, "
+                    "revenue, transaction_count, avg_order_value")
+            .eq("business_id", business_id)
+        )
+        if from_date:
+            q = q.gte("date", from_date)
+        if to_date:
+            q = q.lte("date", to_date)
+        if category:
+            q = q.eq("product_category", category)
+        result = q.execute()
+    except Exception as exc:
+        logger.warning("[dashboard_data] supabase query failed: %s", exc)
+        return _empty_dashboard()
+
+    if not result.data:
+        return _empty_dashboard()
+
+    df = pd.DataFrame(result.data)
+    df["date"] = pd.to_datetime(df["date"])
+    df["revenue"] = pd.to_numeric(df["revenue"], errors="coerce").fillna(0.0)
+    df["transaction_count"] = pd.to_numeric(df["transaction_count"], errors="coerce").fillna(0).astype(int)
+    df["units_sold"] = pd.to_numeric(df["units_sold"], errors="coerce").fillna(0).astype(int)
+
+    # Build the categories list from the FULL business dataset (not filtered),
+    # so the filter dropdown shows every category even after one is selected.
+    try:
+        cat_q = (
+            supabase.table("pos_records")
+            .select("product_category")
+            .eq("business_id", business_id)
+            .execute()
+        )
+        all_categories = sorted({
+            r["product_category"] for r in (cat_q.data or [])
+            if r.get("product_category")
+        })
+    except Exception:
+        all_categories = sorted(df["product_category"].dropna().unique().tolist())
+
+    # ── Top-line metrics ────────────────────────────────────────────────────
+    total_revenue = float(df["revenue"].sum())
+    total_orders = int(df["transaction_count"].sum())
+    total_units = int(df["units_sold"].sum())
+    aov = round(total_revenue / total_orders, 2) if total_orders > 0 else 0.0
+
+    date_min = df["date"].min().date()
+    date_max = df["date"].max().date()
+    days_span = (date_max - date_min).days + 1
+    avg_daily_rev = round(total_revenue / days_span, 2) if days_span > 0 else 0.0
+
+    # Best-selling product. Prefer named items; fall back to category.
+    best_item: str | None = None
+    best_item_rev = 0.0
+    if "product_name" in df.columns:
+        named = df.dropna(subset=["product_name"])
+        named = named[named["product_name"].astype(str).str.strip() != ""]
+        if not named.empty:
+            top = named.groupby("product_name")["revenue"].sum().sort_values(ascending=False)
+            if len(top) > 0:
+                best_item = str(top.index[0])
+                best_item_rev = float(top.iloc[0])
+    if not best_item:
+        cat_top = df.groupby("product_category")["revenue"].sum().sort_values(ascending=False)
+        if len(cat_top) > 0:
+            best_item = str(cat_top.index[0])
+            best_item_rev = float(cat_top.iloc[0])
+
+    # ── Daily revenue series ────────────────────────────────────────────────
+    daily = (
+        df.groupby(df["date"].dt.date)
+        .agg(revenue=("revenue", "sum"), orders=("transaction_count", "sum"))
+        .reset_index()
+    )
+    # Reindex to a complete date axis so gaps are visible (rev=0).
+    full_index = pd.date_range(date_min, date_max, freq="D").date
+    daily = (
+        daily.set_index("date")
+        .reindex(full_index, fill_value=0)
+        .reset_index()
+        .rename(columns={"index": "date"})
+    )
+    daily["date"] = pd.to_datetime(daily["date"]).dt.strftime("%Y-%m-%d")
+    daily_revenue = daily.to_dict("records")
+
+    # ── Weekly revenue + week-over-week growth ──────────────────────────────
+    df["week_start"] = df["date"].dt.to_period("W-SUN").apply(lambda p: p.start_time.date())
+    weekly = (
+        df.groupby("week_start")
+        .agg(revenue=("revenue", "sum"), orders=("transaction_count", "sum"))
+        .reset_index()
+        .sort_values("week_start")
+    )
+    weekly_records: list[dict] = []
+    prev_rev: float | None = None
+    for _, row in weekly.iterrows():
+        ws = row["week_start"]
+        rev = float(row["revenue"])
+        growth = None
+        if prev_rev is not None and prev_rev > 0:
+            growth = round(((rev - prev_rev) / prev_rev) * 100, 1)
+        weekly_records.append({
+            "week_start": ws.isoformat(),
+            "label": f"W{(ws.day - 1) // 7 + 1}{ws.strftime('%b')}",
+            "revenue": rev,
+            "orders": int(row["orders"]),
+            "growth_pct": growth,
+        })
+        prev_rev = rev
+
+    best_week = max(weekly_records, key=lambda w: w["revenue"], default=None)
+    worst_week = min(weekly_records, key=lambda w: w["revenue"], default=None)
+
+    # ── Peak Sales Day analysis (day-of-week) ───────────────────────────────
+    df["dow_idx"] = df["date"].dt.dayofweek  # 0=Mon
+    df["dow_name"] = df["date"].dt.strftime("%a")  # Mon, Tue...
+    dow = (
+        df.groupby(["dow_idx", "dow_name"])["revenue"]
+        .agg(["sum", "count", "mean"])
+        .reset_index()
+        .sort_values("dow_idx")
+    )
+    # avg revenue PER DAY-OF-WEEK across the date range (e.g. avg of all Mondays)
+    weeks_in_range = max(1, days_span // 7)
+    peak_day = []
+    for _, r in dow.iterrows():
+        peak_day.append({
+            "day": r["dow_name"],
+            "total_revenue": float(r["sum"]),
+            # rough per-occurrence average: total ÷ (occurrences of that DoW in range)
+            "avg_revenue": round(float(r["sum"]) / weeks_in_range, 2),
+        })
+
+    # ── Revenue by category (donut) ─────────────────────────────────────────
+    by_cat = (
+        df.groupby("product_category")["revenue"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(8)
+    )
+    cat_total = float(by_cat.sum()) or 1.0
+    revenue_by_category = [
+        {"name": name, "revenue": float(rev), "pct": round(float(rev) / cat_total * 100, 1)}
+        for name, rev in by_cat.items()
+    ]
+
+    return {
+        "metrics": {
+            "total_revenue": round(total_revenue, 2),
+            "total_orders": total_orders,
+            "total_units": total_units,
+            "avg_order_value": aov,
+            "avg_daily_revenue": avg_daily_rev,
+            "best_selling_item": best_item,
+            "best_selling_revenue": round(best_item_rev, 2),
+            "date_range": {
+                "from": date_min.isoformat(),
+                "to": date_max.isoformat(),
+                "days": days_span,
+            },
+        },
+        "daily_revenue": daily_revenue,
+        "weekly_revenue": weekly_records,
+        "weekly_growth": {"best_week": best_week, "worst_week": worst_week},
+        "peak_day_of_week": peak_day,
+        "revenue_by_category": revenue_by_category,
+        "categories": all_categories,
+    }
